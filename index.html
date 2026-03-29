@@ -11816,15 +11816,16 @@ async function opsSaveAuditStateNow() {
       updated_at: new Date().toISOString(),
     };
 
-    if (angoraUserIsAdmin(user)) {
-      const { error: cleanupError } = await client
-        .from(OPS_AUDIT_TABLE)
-        .delete()
-        .eq('audit_id', _opsAuditContext.auditId)
-        .eq('week_key', _opsAuditContext.weekKey)
-        .neq('user_id', user.id);
+    // Clean up stale rows for this audit from other users (non-fatal)
+    const { error: cleanupError } = await client
+      .from(OPS_AUDIT_TABLE)
+      .delete()
+      .eq('audit_id', _opsAuditContext.auditId)
+      .eq('week_key', _opsAuditContext.weekKey)
+      .neq('user_id', user.id);
 
-      if (cleanupError) throw cleanupError;
+    if (cleanupError) {
+      console.warn('[Angora] OPS audit cleanup warning (non-fatal):', cleanupError.message);
     }
 
     const { error } = await client
@@ -12094,32 +12095,18 @@ async function opsLoadAuditStateAndApply(force = false) {
 
   try {
     const { client, user } = await opsGetClientAndUser();
-    let data;
-    let error;
-    if (angoraUserIsAdmin(user)) {
-      ({ data, error } = await client
-        .from(OPS_AUDIT_TABLE)
-        .select('data, updated_at')
-        .eq('audit_id', _opsAuditContext.auditId)
-        .eq('week_key', _opsAuditContext.weekKey)
-        .order('updated_at', { ascending: false })
-        .limit(1));
-    } else {
-      ({ data, error } = await client
-        .from(OPS_AUDIT_TABLE)
-        .select('data')
-        .eq('user_id', user.id)
-        .eq('audit_id', _opsAuditContext.auditId)
-        .eq('week_key', _opsAuditContext.weekKey)
-        .maybeSingle());
-    }
+    const { data, error } = await client
+      .from(OPS_AUDIT_TABLE)
+      .select('data, updated_at')
+      .eq('audit_id', _opsAuditContext.auditId)
+      .eq('week_key', _opsAuditContext.weekKey)
+      .order('updated_at', { ascending: false })
+      .limit(1);
 
     if (error) throw error;
 
     opsResetWorkflowForAudit(_opsSelectedBrand || _opsAuditContext.brand || '');
-    const savedState = angoraUserIsAdmin(user)
-      ? (Array.isArray(data) ? data[0]?.data : null)
-      : data?.data;
+    const savedState = Array.isArray(data) ? data[0]?.data : null;
 
     if (savedState && typeof savedState === 'object') {
       opsApplySavedAuditState(savedState);
@@ -13371,52 +13358,36 @@ async function calEnsureRealtimeSubscriptionFor(client, user) {
 async function calLoadStore(force = false) {
   const { client, user } = await calGetClientAndUser();
   await calEnsureRealtimeSubscriptionFor(client, user);
-  const cacheScope = angoraCacheScope(user);
+  // Always use 'admin' scope — all approved users share the same schedule data
+  const cacheScope = 'admin';
   if (!force && _calStoreCache && _calStoreUserId === cacheScope) {
     return { client, user, store: _calStoreCache };
   }
 
-  let data;
-  let error;
-  if (angoraUserIsAdmin(user)) {
-    ({ data, error } = await client
-      .from(CAL_TABLE)
-      .select('schedule_data, completions_data, updated_at')
-      .order('updated_at', { ascending: true }));
-  } else {
-    ({ data, error } = await client
-      .from(CAL_TABLE)
-      .select('schedule_data, completions_data')
-      .eq('user_id', user.id)
-      .maybeSingle());
-  }
+  const { data, error } = await client
+    .from(CAL_TABLE)
+    .select('schedule_data, completions_data, updated_at')
+    .order('updated_at', { ascending: true });
 
   if (error) {
-    console.error('Audit schedule load failed:', error);
+    console.error('[Angora] Audit schedule load failed:', error);
     throw error;
   }
 
-  const mergedStore = angoraUserIsAdmin(user)
-    ? {
-        schedule: angoraMergeObjectRows(data, 'schedule_data'),
-        completions: angoraMergeObjectRows(data, 'completions_data'),
-      }
-    : (data ? calNormalizeStore(data) : null);
-
-  const hasStoredSchedule = angoraUserIsAdmin(user)
-    ? Array.isArray(data) && data.length > 0
-    : !!data;
+  const hasStoredSchedule = Array.isArray(data) && data.length > 0;
 
   if (hasStoredSchedule) {
-    _calStoreCache = mergedStore;
+    _calStoreCache = {
+      schedule: angoraMergeObjectRows(data, 'schedule_data'),
+      completions: angoraMergeObjectRows(data, 'completions_data'),
+    };
     _calStoreUserId = cacheScope;
+    console.log('[Angora] Audit schedule loaded:', Object.keys(_calStoreCache.schedule).length, 'days');
     return { client, user, store: _calStoreCache };
   }
 
-  _calStoreCache = {
-    schedule: {},
-    completions: {},
-  };
+  console.log('[Angora] Audit schedule: no data found in table');
+  _calStoreCache = { schedule: {}, completions: {} };
   _calStoreUserId = cacheScope;
   return { client, user, store: _calStoreCache };
 }
@@ -13429,16 +13400,14 @@ async function calSaveStore(store) {
     completions: asIsPlainObject(store?.completions) ? store.completions : {},
   };
 
-  if (angoraUserIsAdmin(user)) {
-    const { error: cleanupError } = await client
-      .from(CAL_TABLE)
-      .delete()
-      .neq('user_id', user.id);
+  // Clean up stale rows from other users (non-fatal if RLS blocks it)
+  const { error: cleanupError } = await client
+    .from(CAL_TABLE)
+    .delete()
+    .neq('user_id', user.id);
 
-    if (cleanupError) {
-      console.error('Audit schedule cleanup failed:', cleanupError);
-      throw cleanupError;
-    }
+  if (cleanupError) {
+    console.warn('[Angora] Audit schedule cleanup warning (non-fatal):', cleanupError.message);
   }
 
   const { error } = await client
@@ -13454,12 +13423,12 @@ async function calSaveStore(store) {
     );
 
   if (error) {
-    console.error('Audit schedule save failed:', error);
+    console.error('[Angora] Audit schedule save failed:', error);
     throw error;
   }
 
   _calStoreCache = next;
-  _calStoreUserId = angoraCacheScope(user);
+  _calStoreUserId = 'admin';
 }
 
 function asGetWeekDates(offset) {
