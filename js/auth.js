@@ -4,7 +4,10 @@
   const PROFILE_TABLE = 'angora_user_profiles';
   const MIN_PASSWORD_LENGTH = 6;
   const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const BOOTSTRAP_SUPER_ADMIN_EMAIL = 'proabdulbasit.me@gmail.com';
+  const BOOTSTRAP_SUPER_ADMIN_EMAILS = [
+    'alex@joinangora.com',
+    'ben@joinangora.com'
+  ];
   const ROLE_ADMIN = 'admin';
   const ROLE_SUPER_ADMIN = 'super_admin';
   const STATUS_PENDING = 'pending';
@@ -304,7 +307,7 @@
   }
 
   function isBootstrapSuperAdminEmail(email) {
-    return normalizeEmail(email) === BOOTSTRAP_SUPER_ADMIN_EMAIL;
+    return BOOTSTRAP_SUPER_ADMIN_EMAILS.includes(normalizeEmail(email));
   }
 
   function buildFullName(firstName, lastName) {
