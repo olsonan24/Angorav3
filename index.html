@@ -5554,28 +5554,16 @@ if (!window.storage) {
     const user = await getCurrentUser(client);
     if (!client || !user) throw new Error('No authenticated user');
 
-    if (angoraUserIsAdmin(user)) {
-      const { data, error } = await client
-        .from(ANGORA_STORAGE_TABLE)
-        .select('value, updated_at')
-        .eq('key', key)
-        .order('updated_at', { ascending: true });
-
-      if (error) throw error;
-      if (!data?.length) throw new Error('Key not found: ' + key);
-      return angoraMergeStorageRows(data);
-    }
-
+    // Always fetch all rows for the key and merge — shared library across all users
     const { data, error } = await client
       .from(ANGORA_STORAGE_TABLE)
-      .select('value')
-      .eq('user_id', user.id)
+      .select('value, updated_at')
       .eq('key', key)
-      .maybeSingle();
+      .order('updated_at', { ascending: true });
 
     if (error) throw error;
-    if (!data) throw new Error('Key not found: ' + key);
-    return data.value;
+    if (!data?.length) throw new Error('Key not found: ' + key);
+    return angoraMergeStorageRows(data);
   }
 
   async function dbSet(key, value) {
@@ -5583,14 +5571,15 @@ if (!window.storage) {
     const user = await getCurrentUser(client);
     if (!client || !user) throw new Error('No authenticated user');
 
-    if (angoraUserIsAdmin(user)) {
-      const { error: cleanupError } = await client
-        .from(ANGORA_STORAGE_TABLE)
-        .delete()
-        .eq('key', key)
-        .neq('user_id', user.id);
+    // Clean up stale rows from other users (non-fatal if RLS blocks it)
+    const { error: cleanupError } = await client
+      .from(ANGORA_STORAGE_TABLE)
+      .delete()
+      .eq('key', key)
+      .neq('user_id', user.id);
 
-      if (cleanupError) throw cleanupError;
+    if (cleanupError) {
+      console.warn('[Angora][Storage] Cleanup warning (non-fatal):', cleanupError.message);
     }
 
     const { error } = await client
@@ -5632,13 +5621,10 @@ if (!window.storage) {
     const user = await getCurrentUser(client);
     if (!client || !user) throw new Error('No authenticated user');
 
+    // Always list all keys (shared across all users)
     let query = client
       .from(ANGORA_STORAGE_TABLE)
       .select('key');
-
-    if (!angoraUserIsAdmin(user)) {
-      query = query.eq('user_id', user.id);
-    }
 
     if (prefix) query = query.like('key', String(prefix) + '%');
 
@@ -6911,43 +6897,32 @@ async function plGetClientAndUser() {
 
 async function plLoadAll(force = false) {
   const { client, user } = await plGetClientAndUser();
-  const cacheScope = angoraCacheScope(user);
+  // All approved users share the same product library — always fetch all rows
+  // regardless of role, so data is visible even if user_metadata.role isn't set.
+  const cacheScope = 'admin';
   if (!force && _plCache && _plCacheUserId === cacheScope) return _plCache;
 
-  let data;
-  let error;
-  if (angoraUserIsAdmin(user)) {
-    ({ data, error } = await client
-      .from(PRODUCT_LIB_TABLE)
-      .select('data, updated_at')
-      .order('updated_at', { ascending: true }));
-  } else {
-    ({ data, error } = await client
-      .from(PRODUCT_LIB_TABLE)
-      .select('data')
-      .eq('user_id', user.id)
-      .maybeSingle());
-  }
+  const { data, error } = await client
+    .from(PRODUCT_LIB_TABLE)
+    .select('data, updated_at')
+    .order('updated_at', { ascending: true });
 
   if (error) {
-    console.error('Product library load failed:', error);
+    console.error('[Angora] Product library load failed:', error);
     throw error;
   }
 
-  const sharedData = angoraUserIsAdmin(user)
-    ? angoraMergeObjectRows(data, 'data')
-    : (data?.data && typeof data.data === 'object' ? data.data : null);
-
-  const hasStoredLibrary = angoraUserIsAdmin(user)
-    ? Array.isArray(data) && data.length > 0
-    : !!data;
+  const hasStoredLibrary = Array.isArray(data) && data.length > 0;
 
   if (hasStoredLibrary) {
-    _plCache = sharedData && typeof sharedData === 'object' ? sharedData : {};
+    const merged = angoraMergeObjectRows(data, 'data');
+    _plCache = merged && typeof merged === 'object' ? merged : {};
     _plCacheUserId = cacheScope;
+    console.log('[Angora] Product library loaded:', Object.keys(_plCache).length, 'brands');
     return _plCache;
   }
 
+  console.log('[Angora] Product library: no data found in table');
   _plCache = {};
   _plCacheUserId = cacheScope;
   return _plCache;
@@ -6956,18 +6931,17 @@ async function plLoadAll(force = false) {
 async function plSaveAll(lib) {
   const { client, user } = await plGetClientAndUser();
   _plCache = lib || {};
-  _plCacheUserId = angoraCacheScope(user);
+  _plCacheUserId = 'admin';
 
-  if (angoraUserIsAdmin(user)) {
-    const { error: cleanupError } = await client
-      .from(PRODUCT_LIB_TABLE)
-      .delete()
-      .neq('user_id', user.id);
+  // Clean up any stale rows from other users so there's one canonical row
+  const { error: cleanupError } = await client
+    .from(PRODUCT_LIB_TABLE)
+    .delete()
+    .neq('user_id', user.id);
 
-    if (cleanupError) {
-      console.error('Product library cleanup failed:', cleanupError);
-      throw cleanupError;
-    }
+  if (cleanupError) {
+    console.warn('[Angora] Product library cleanup warning:', cleanupError.message);
+    // Non-fatal — continue with save even if cleanup fails (RLS may block it)
   }
 
   const { error } = await client
