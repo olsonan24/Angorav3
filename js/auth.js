@@ -487,7 +487,7 @@
 
     setBusy(els.loginSubmit, true);
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     setBusy(els.loginSubmit, false);
 
@@ -496,8 +496,7 @@
       return;
     }
 
-    const { data } = await supabase.auth.getSession();
-    const user = data?.session?.user || null;
+    const user = data?.user || data?.session?.user || null;
 
     await syncUserProfileRecord(user);
 
@@ -625,7 +624,7 @@
 
     setBusy(els.resetSubmit, true);
 
-    const { error } = await supabase.auth.updateUser({ password });
+    const { data, error } = await supabase.auth.updateUser({ password });
 
     setBusy(els.resetSubmit, false);
 
@@ -638,8 +637,7 @@
 
     state.recoveryMode = false;
 
-    const { data } = await supabase.auth.getSession();
-    const user = data?.session?.user || null;
+    const user = data?.user || null;
 
     const allowed = await ensureApprovedAccess(user);
     if (!allowed) return;
