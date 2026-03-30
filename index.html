@@ -26,17 +26,17 @@
 
   /* ── LIGHT MODE ── */
   :root.light {
-    --bg: #f4f5f9;
+    --bg: #f8fafc;
     --surface: #ffffff;
-    --surface2: #eef0f6;
-    --border: #d8dce8;
-    --accent: #4a6fff;
-    --text: #0f1120;
-    --muted: #8890a8;
-    --negate: #e0253f;
-    --increase: #0f9b6e;
-    --decrease: #c07a00;
-    --exact: #4a6fff;
+    --surface2: #f1f5f9;
+    --border: #e2e8f0;
+    --accent: #2563eb;
+    --text: #0f172a;
+    --muted: #475569;
+    --negate: #e11d48;
+    --increase: #059669;
+    --decrease: #b45309;
+    --exact: #2563eb;
   }
   :root.light body { background: var(--bg); }
   :root.light .glow-orb { opacity: 0.12; }
@@ -60,6 +60,37 @@
   :root.light .wkr-config-row td > div { background: #f8f9fc; border-color: var(--border); }
   :root.light .drop-zone { background: #ffffff; }
   :root.light .logo-text { color: var(--text); }
+
+  /* ── LEGIBILITY OVERRIDES ── */
+  :root.light .sidebar-section-label { color: var(--text) !important; opacity: 0.8; font-weight: 700; }
+  :root.light .sidebar-team-toggle, :root.light .sidebar-tools-toggle { color: var(--text) !important; font-weight: 600; }
+  :root.light .dash-hero { border: 1px solid #cbd5e1 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.03); background: #ffffff !important; }
+  :root.light .dash-hero-title span { opacity: 0.7 !important; color: var(--text) !important; }
+  :root.light .dash-hero-orbs .dash-orb { background: #f1f5f9 !important; border: 1px solid #e2e8f0 !important; color: var(--text) !important; }
+  :root.light .dash-card { background: #ffffff !important; border-color: #cbd5e1 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.04) !important; }
+  :root.light .dash-card:hover { border-color: var(--accent) !important; }
+  :root.light .dash-card-tag { font-weight: 700 !important; }
+  :root.light .nav-item { color: var(--muted) !important; font-weight: 500; }
+  :root.light .nav-item.active { color: var(--accent) !important; background: rgba(37,99,235,0.1) !important; }
+  :root.light .sidebar-nav-item { color: var(--muted) !important; }
+  :root.light .sidebar-nav-item.active { color: var(--accent) !important; font-weight: 600; background: rgba(37,99,235,0.08) !important; }
+  :root.light .sidebar-team-children .sidebar-nav-item { color: var(--muted) !important; }
+
+  /* Mute neon colors for white background */
+  :root.light [stroke="#4dffb4"], :root.light [fill="#4dffb4"] { stroke: #059669 !important; fill: #059669 !important; }
+  :root.light [style*="color:#4dffb4"] { color: #059669 !important; background: rgba(5,150,105,0.1) !important; border-color: rgba(5,150,105,0.2) !important; }
+  :root.light [stroke="#38bdf8"], :root.light [fill="#38bdf8"] { stroke: #0284c7 !important; fill: #0284c7 !important; }
+  :root.light [style*="color:#38bdf8"] { color: #0284c7 !important; background: rgba(2,132,199,0.1) !important; border-color: rgba(2,132,199,0.2) !important; }
+  :root.light [stroke="#ffd166"], :root.light [fill="#ffd166"] { stroke: #b45309 !important; fill: #b45309 !important; }
+  :root.light [style*="color:#ffd166"] { color: #b45309 !important; background: rgba(180,83,9,0.1) !important; border-color: rgba(180,83,9,0.2) !important; }
+  :root.light [stroke="#6b8fff"], :root.light [fill="#6b8fff"] { stroke: #4338ca !important; fill: #4338ca !important; }
+  :root.light [style*="color:#6b8fff"] { color: #4338ca !important; background: rgba(67,56,202,0.1) !important; border-color: rgba(67,56,202,0.2) !important; }
+  :root.light [stroke="#ff6b9d"], :root.light [fill="#ff6b9d"] { stroke: #be185d !important; fill: #be185d !important; }
+  :root.light [style*="color:#ff6b9d"] { color: #be185d !important; background: rgba(190,24,93,0.1) !important; border-color: rgba(190,24,93,0.2) !important; }
+  :root.light [stroke="#ffb347"], :root.light [fill="#ffb347"] { stroke: #b45309 !important; fill: #b45309 !important; }
+  :root.light [style*="color:#ffb347"] { color: #b45309 !important; background: rgba(180,83,9,0.1) !important; border-color: rgba(180,83,9,0.2) !important; }
+  :root.light [stroke="#a78bfa"], :root.light [fill="#a78bfa"] { stroke: #6d28d9 !important; fill: #6d28d9 !important; }
+  :root.light [style*="color:#a78bfa"] { color: #6d28d9 !important; background: rgba(109,40,217,0.1) !important; border-color: rgba(109,40,217,0.2) !important; }
 
   /* Settings page styles */
   .settings-page { max-width: 680px; margin: 0 auto; padding: 32px 24px; }
