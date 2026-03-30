@@ -478,11 +478,6 @@
 
     await syncUserProfileRecord(user);
 
-    if (user && !state.recoveryMode) {
-      const allowed = await ensureApprovedAccess(user);
-      if (!allowed) return;
-    }
-
     applyAuthUI(user);
     notifyAuthState('SESSION_SYNC', user);
   }
@@ -512,9 +507,6 @@
     const user = data?.user || data?.session?.user || null;
 
     await syncUserProfileRecord(user);
-
-    const allowed = await ensureApprovedAccess(user);
-    if (!allowed) return;
 
     applyAuthUI(user);
     notifyAuthState('SIGNED_IN', user);
