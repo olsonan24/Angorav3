@@ -245,12 +245,8 @@ update auth.users
 set email_confirmed_at = coalesce(email_confirmed_at, now())
 where email_confirmed_at is null;
 
--- Sync active status into JWT metadata
-update auth.users
-set raw_user_meta_data =
-  coalesce(raw_user_meta_data, '{}'::jsonb) ||
-  jsonb_build_object('approval_status', 'active', 'role', 'admin')
-where id in (select user_id from public.angora_user_profiles);
+-- NOTE: We do NOT add triggers to auth.users — Supabase manages that table
+-- internally and triggers on it cause "database error querying schema" errors.
 
 
 -- ════════════════════════════════════════════════
