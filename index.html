@@ -9396,14 +9396,14 @@ function toggleSetting(key) {
 // Init on load
 (function initSettings() {
   // immediate defaults to avoid flash
-  applyTheme('dark');
+  applyTheme('light');
   applyCompact(false);
   applyGlow(true);
 
   // then hydrate from persisted DB storage
   document.addEventListener('DOMContentLoaded', async () => {
     const s = await loadSettingsFromStorage();
-    applyTheme(s.theme || 'dark');
+    applyTheme(s.theme || 'light');
     if (s.accent) applyAccent(s.accent);
     else {
       const def = document.querySelector('.accent-swatch[data-color="#6b8fff"]');
