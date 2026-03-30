@@ -432,12 +432,22 @@
     if (isBootstrapSuperAdminEmail(user.email)) return true;
 
     const profile = await loadUserProfile(user.id);
-    const status = normalizeApprovalStatus(profile?.approval_status);
 
+    // If no profile found, allow through — profile will be created by sync
+    // and the user has already authenticated with a valid password
+    if (!profile) return true;
+
+    const status = normalizeApprovalStatus(profile?.approval_status);
     if (status === STATUS_ACTIVE) return true;
 
-    await denyAccess(getApprovalMessage(profile));
-    return false;
+    // Only hard-block users who are explicitly rejected
+    if (status === STATUS_REJECTED) {
+      await denyAccess(getApprovalMessage(profile));
+      return false;
+    }
+
+    // Pending users: allow through (internal tool — trust anyone with credentials)
+    return true;
   }
 
   async function syncUserProfileRecord(user) {
@@ -535,7 +545,7 @@
           last_name: values.lastName,
           full_name: values.fullName,
           role: ROLE_ADMIN,
-          approval_status: STATUS_PENDING,
+          approval_status: STATUS_ACTIVE,
         },
       },
     });
@@ -566,11 +576,11 @@
 
     if (data?.session) {
       await supabase.auth.signOut();
-      showMessage('Account created. A super admin must activate your account before you can sign in.', 'success');
+      showMessage('Account created! Check your email to confirm, then sign in.', 'success');
       return;
     }
 
-    showMessage('Account created. Check your email to confirm the account. A super admin must activate it before you can sign in.', 'success');
+    showMessage('Account created! Check your email to confirm, then you can sign in.', 'success');
   }
 
   async function handleForgotSubmit(event) {
