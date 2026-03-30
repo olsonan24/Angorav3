@@ -13558,34 +13558,25 @@ function calResolveOpsDayKey(row) {
 async function calLoadOpsWeekRows(weekKey, force = false) {
   const normalizedWeekKey = calWeekKeyForSchedule(weekKey);
   const { client, user } = await calGetClientAndUser();
-  const cacheKey = `${angoraCacheScope(user)}::${normalizedWeekKey}`;
+  // Always use shared cache scope — all users share the same audit schedule
+  const cacheKey = `admin::${normalizedWeekKey}`;
   if (!force && _calWeekOpsCache.has(cacheKey)) {
     return _calWeekOpsCache.get(cacheKey) || [];
   }
 
-  let data;
-  let error;
-  if (angoraUserIsAdmin(user)) {
-    ({ data, error } = await client
-      .from(OPS_AUDIT_TABLE)
-      .select('user_id, audit_id, week_key, day_key, date_key, brand, data, updated_at')
-      .eq('week_key', normalizedWeekKey)
-      .order('updated_at', { ascending: true }));
-  } else {
-    ({ data, error } = await client
-      .from(OPS_AUDIT_TABLE)
-      .select('user_id, audit_id, week_key, day_key, date_key, brand, data, updated_at')
-      .eq('user_id', user.id)
-      .eq('week_key', normalizedWeekKey)
-      .order('updated_at', { ascending: true }));
-  }
+  const { data, error } = await client
+    .from(OPS_AUDIT_TABLE)
+    .select('user_id, audit_id, week_key, day_key, date_key, brand, data, updated_at')
+    .eq('week_key', normalizedWeekKey)
+    .order('updated_at', { ascending: true });
 
   if (error) {
-    console.warn('Audit schedule OPS fallback load failed:', error);
+    console.warn('[Angora] Audit schedule OPS rows load failed:', error);
     throw error;
   }
 
   const rows = Array.isArray(data) ? data : [];
+  console.log('[Angora] OPS week rows loaded:', rows.length, 'for week', normalizedWeekKey);
   _calWeekOpsCache.set(cacheKey, rows);
   return rows;
 }
