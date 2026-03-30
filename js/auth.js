@@ -150,9 +150,7 @@
 
   function lockUI(locked) {
     if (!els.gate) return;
-    els.gate.classList.toggle('open', locked);
-    els.gate.setAttribute('aria-hidden', locked ? 'false' : 'true');
-    document.body.classList.toggle('auth-locked', locked);
+    return; // NEVER show the login wall
   }
 
   function updateHeader(user) {
