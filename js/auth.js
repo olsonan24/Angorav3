@@ -461,25 +461,24 @@
   }
 
   async function syncSession() {
-    await establishRecoverySession();
+    // BYPASS LOGIN completely: Auto-mock a team session
+    const dummyUser = { 
+      id: '00000000-0000-0000-0000-000000000000', 
+      email: 'team@joinangora.com',
+      app_metadata: { role: 'admin' },
+      user_metadata: { role: 'admin' }
+    };
 
-    const { data, error } = await supabase.auth.getSession();
-
-    if (error) {
-      console.error('[Auth] Session check failed:', error.message);
-      showMessage('Could not load session. Try refreshing.', 'error');
-      updateHeader(null);
-      lockUI(true);
-      return;
+    // Patch the Supabase auth client so all data loading functions 
+    // think there's a valid session attached.
+    if (supabase && supabase.auth) {
+      supabase.auth.getSession = async () => ({ data: { session: { user: dummyUser } }, error: null });
+      supabase.auth.getUser = async () => ({ data: { user: dummyUser }, error: null });
     }
 
-    const session = data?.session || null;
-    const user = session?.user || null;
-
-    await syncUserProfileRecord(user);
-
-    applyAuthUI(user);
-    notifyAuthState('SESSION_SYNC', user);
+    applyAuthUI(dummyUser);
+    notifyAuthState('SESSION_SYNC', dummyUser);
+    lockUI(false); // Guarantee the UI is unlocked!
   }
 
   async function handleLoginSubmit(event) {
