@@ -14471,9 +14471,18 @@ async function acctDownloadAuditReport(dateStr, auditId, triggerBtn) {
   triggerBtn.style.opacity = '0.5';
   
   try {
-    const b64 = await dbGet('angora:audit_pdf:' + dateStr + ':' + auditId);
+    let b64 = null;
+    try {
+      b64 = await dbGet('angora:audit_pdf:' + dateStr + ':' + auditId);
+    } catch (fetchErr) {
+      // dbGet throws an error identically for missing files. We suppress it nicely here!
+      if (!fetchErr.message?.includes('Key not found')) {
+        throw fetchErr; 
+      }
+    }
+
     if (!b64) {
-      alert("No report PDF was saved for this audit!\\n\\n(Older audits may not have a generated file attached.)");
+      alert("No report PDF was saved for this audit!\n\n(Older audits may not have a generated file attached. Any report generated from now on will cleanly save!)");
     } else {
       const link = document.createElement("a");
       link.href = b64;
