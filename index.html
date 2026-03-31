@@ -14052,7 +14052,7 @@ let _acctSaveTimer   = null;
 async function acctLoadProfiles() {
   try {
     const r = await window.storage.get(ACCT_PROFILE_KEY, true);
-    return r ? JSON.parse(r.value) : {};
+    return r ? (typeof r.value === 'string' ? JSON.parse(r.value) : r.value) : {};
   } catch(e) { return {}; }
 }
 
@@ -14064,7 +14064,7 @@ async function acctSaveProfiles(data) {
 async function acctLoadAuditLog() {
   try {
     const r = await window.storage.get(ACCT_AUDIT_LOG_KEY, true);
-    return r ? JSON.parse(r.value) : {};
+    return r ? (typeof r.value === 'string' ? JSON.parse(r.value) : r.value) : {};
   } catch(e) { return {}; }
 }
 
@@ -14165,7 +14165,7 @@ async function acctSaveNow() {
 async function acctLoadNotesLog() {
   try {
     const r = await window.storage.get(ACCT_NOTES_LOG_KEY, true);
-    return r ? JSON.parse(r.value) : {};
+    return r ? (typeof r.value === 'string' ? JSON.parse(r.value) : r.value) : {};
   } catch(e) { return {}; }
 }
 
@@ -14493,6 +14493,7 @@ function acctEditProduct(brand, key) {
 
 async function acctRenderAuditHistory(brand) {
   const countEl   = document.getElementById('acctAuditCount');
+  const container = document.getElementById('acctAuditHistory');
   if (!container) return;
 
   const DAY_LABELS = { '0':'Sunday','1':'Monday','2':'Tuesday','3':'Wednesday','4':'Thursday','5':'Friday','6':'Saturday' };
