@@ -5613,19 +5613,37 @@ if (!window.storage) {
       console.warn('[Angora][Storage] Cleanup warning (non-fatal):', cleanupError.message);
     }
 
-    const { error } = await client
+    // Check if the record already exists for this exact user
+    const { data: existing } = await client
       .from(ANGORA_STORAGE_TABLE)
-      .upsert(
-        {
-          user_id: user.id,
-          key,
-          value: String(value ?? ''),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id,key' }
-      );
+      .select('key')
+      .eq('key', key)
+      .eq('user_id', user.id)
+      .maybeSingle();
 
-    if (error) throw error;
+    const payload = {
+      user_id: user.id,
+      key,
+      value: String(value ?? ''),
+      updated_at: new Date().toISOString(),
+    };
+
+    let opError;
+    if (existing) {
+      const { error } = await client
+        .from(ANGORA_STORAGE_TABLE)
+        .update(payload)
+        .eq('key', key)
+        .eq('user_id', user.id);
+      opError = error;
+    } else {
+      const { error } = await client
+        .from(ANGORA_STORAGE_TABLE)
+        .insert([payload]);
+      opError = error;
+    }
+
+    if (opError) throw opError;
   }
 
   async function dbDelete(key) {
