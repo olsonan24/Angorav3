@@ -11655,6 +11655,17 @@ async function wkrEmailSend() {
         const completions = await calLoadCompletions(true);
         completions[dateKeyStr + ':' + match.id] = true;
         await calSaveCompletions(completions);
+        
+        // Save the generated PDF document securely to the database as base64 so it can be re-accessed later
+        try {
+          const reader = new FileReader();
+          reader.onload = async () => {
+             await dbSet('angora:audit_pdf:' + dateKeyStr + ':' + match.id, reader.result);
+          };
+          reader.readAsDataURL(pdfBlob);
+        } catch (pdfErr) {
+          console.warn('Silent PDF attachment save error:', pdfErr);
+        }
       }
     } catch(e) { /* non-critical */ }
     setTimeout(() => {
@@ -14514,6 +14525,34 @@ async function acctRenderAuditHistory(brand) {
     return;
   }
 
+async function acctDownloadAuditReport(dateStr, auditId, triggerBtn) {
+  const oldText = triggerBtn.textContent;
+  triggerBtn.textContent = '...';
+  triggerBtn.disabled = true;
+  triggerBtn.style.opacity = '0.5';
+  
+  try {
+    const b64 = await dbGet('angora:audit_pdf:' + dateStr + ':' + auditId);
+    if (!b64) {
+      alert("No report PDF was saved for this audit!\\n\\n(Older audits may not have a generated file attached.)");
+    } else {
+      const link = document.createElement("a");
+      link.href = b64;
+      link.download = `Audit_Report_${dateStr}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  } catch(err) {
+    console.warn("Download err:", err);
+    alert("Could not load the PDF report.");
+  } finally {
+    triggerBtn.textContent = oldText;
+    triggerBtn.disabled = false;
+    triggerBtn.style.opacity = '1';
+  }
+}
+
   countEl.textContent = `${doneEntries}/${totalEntries} completed`;
 
   container.innerHTML = sortedDates.map(dateStr => {
@@ -14526,12 +14565,22 @@ async function acctRenderAuditHistory(brand) {
     const d = new Date(dateStr + 'T12:00:00');
     const label = d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
     const specialist = items[0]?.specialist || '—';
+    
+    // Create the PDF button if it's completely done
+    const auditId = items[0]?.auditId || '';
+    const pdfBtn = (allDone && auditId) 
+      ? `<button onclick="acctDownloadAuditReport('${dateStr}', '${auditId}', this)" style="background:transparent;border:1px solid rgba(107,143,255,0.4);border-radius:4px;color:rgba(107,143,255,1);font-family:'DM Mono',monospace;font-size:9px;padding:3px 8px;cursor:pointer;margin-right:10px;transition:background 0.2s" onmouseover="this.style.background='rgba(107,143,255,0.1)'" onmouseout="this.style.background='transparent'">📄 PDF</button>` 
+      : '';
+
     return `<div style="display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 14px;transition:border-color 0.15s" onmouseover="this.style.borderColor='rgba(107,143,255,0.3)'" onmouseout="this.style.borderColor='var(--border)'">
       <div style="display:flex;flex-direction:column;gap:3px">
         <div style="font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--text)">${label}</div>
         <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted)">${specialist}</div>
       </div>
-      <div style="font-family:'DM Mono',monospace;font-size:9px;color:${statusCol};letter-spacing:0.5px">${statusTxt}</div>
+      <div style="display:flex;align-items:center;">
+        ${pdfBtn}
+        <div style="font-family:'DM Mono',monospace;font-size:9px;color:${statusCol};letter-spacing:0.5px">${statusTxt}</div>
+      </div>
     </div>`;
   }).join('');
 }
