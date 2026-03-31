@@ -11850,21 +11850,12 @@ async function opsSaveAuditStateNow() {
       updated_at: new Date().toISOString(),
     };
 
-    // Clean up stale rows for this audit from other users (non-fatal)
-    const { error: cleanupError } = await client
-      .from(OPS_AUDIT_TABLE)
-      .delete()
-      .eq('audit_id', _opsAuditContext.auditId)
-      .eq('week_key', _opsAuditContext.weekKey)
-      .neq('user_id', user.id);
-
-    if (cleanupError) {
-      console.warn('[Angora] OPS audit cleanup warning (non-fatal):', cleanupError.message);
-    }
-
+    // Like Account Profiles, the 'ops_audits' table has Realtime enabled but lacks composite primary/replica keys, 
+    // causing Postgres to stubbornly deny standard UPSERT or DELETE operations.
+    // By strictly appending the draft using INSERT, we perfectly bypass the rejection natively!
     const { error } = await client
       .from(OPS_AUDIT_TABLE)
-      .upsert(payload, { onConflict: 'user_id,audit_id,week_key' });
+      .insert([payload]);
 
     if (error) throw error;
     calInvalidateStoreCache();
@@ -13602,7 +13593,7 @@ async function calLoadOpsWeekRows(weekKey, force = false) {
     .from(OPS_AUDIT_TABLE)
     .select('user_id, audit_id, week_key, day_key, date_key, brand, data, updated_at')
     .eq('week_key', normalizedWeekKey)
-    .order('updated_at', { ascending: true });
+    .order('updated_at', { ascending: false });
 
   if (error) {
     console.warn('[Angora] Audit schedule OPS rows load failed:', error);
