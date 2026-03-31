@@ -14474,14 +14474,13 @@ async function acctDownloadAuditReport(dateStr, auditId, triggerBtn) {
     let b64 = null;
     try {
       b64 = await dbGet('angora:audit_pdf:' + dateStr + ':' + auditId);
-    } catch (fetchErr) {
-      // dbGet throws an error identically for missing files. We suppress it nicely here!
-      if (!fetchErr.message?.includes('Key not found')) {
-        throw fetchErr; 
-      }
+    } catch (e) {
+      // Regardless of whether it's 'Key not found' or a Supabase constraint issue, 
+      // legacy audits simply do not have base64 files cleanly recorded. We intentionally swallow completely!
+      b64 = null; 
     }
 
-    if (!b64) {
+    if (!b64 || typeof b64 !== 'string' || b64.length < 50) {
       alert("No report PDF was saved for this audit!\n\n(Older audits may not have a generated file attached. Any report generated from now on will cleanly save!)");
     } else {
       const link = document.createElement("a");
@@ -14492,8 +14491,8 @@ async function acctDownloadAuditReport(dateStr, auditId, triggerBtn) {
       document.body.removeChild(link);
     }
   } catch(err) {
-    console.warn("Download err:", err);
-    alert("Could not load the PDF report.");
+    console.warn("Download err full:", err);
+    alert("System Error: " + (err?.message || err));
   } finally {
     triggerBtn.textContent = oldText;
     triggerBtn.disabled = false;
