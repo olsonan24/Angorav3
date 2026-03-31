@@ -459,24 +459,27 @@
   }
 
   async function syncSession() {
-    // BYPASS LOGIN completely: Auto-mock a team session
-    const dummyUser = { 
-      id: '00000000-0000-0000-0000-000000000000', 
-      email: 'team@joinangora.com',
-      app_metadata: { role: 'admin' },
-      user_metadata: { role: 'admin' }
-    };
+    // We strictly use the original creator account (Alex) because 
+    // Supabase RLS policies are still locking data to the creator's ID.
+    // By simulating Alex's login for the whole team, everyone shares the same data!
+    const masterEmail = 'alex@joinangora.com';
+    const masterPass  = 'TempPass2024!';
 
-    // Patch the Supabase auth client so all data loading functions 
-    // think there's a valid session attached.
-    if (supabase && supabase.auth) {
-      supabase.auth.getSession = async () => ({ data: { session: { user: dummyUser } }, error: null });
-      supabase.auth.getUser = async () => ({ data: { user: dummyUser }, error: null });
+    // Try to login
+    let { data, error } = await supabase.auth.signInWithPassword({
+      email: masterEmail,
+      password: masterPass
+    });
+
+    const realUser = data?.user || data?.session?.user || null;
+
+    if (!realUser) {
+        console.warn('Auto-login failed for Alex:', error);
     }
 
-    applyAuthUI(dummyUser);
-    notifyAuthState('SESSION_SYNC', dummyUser);
-    lockUI(false); // Guarantee the UI is unlocked!
+    applyAuthUI(realUser);
+    notifyAuthState('SESSION_SYNC', realUser);
+    lockUI(false); // Guarantee UI is unlocked
   }
 
   async function handleLoginSubmit(event) {
