@@ -5602,25 +5602,6 @@ if (!window.storage) {
     const user = await getCurrentUser(client);
     if (!client || !user) throw new Error('No authenticated user');
 
-    // Clean up stale rows from other users (non-fatal if RLS blocks it)
-    const { error: cleanupError } = await client
-      .from(ANGORA_STORAGE_TABLE)
-      .delete()
-      .eq('key', key)
-      .neq('user_id', user.id);
-
-    if (cleanupError) {
-      console.warn('[Angora][Storage] Cleanup warning (non-fatal):', cleanupError.message);
-    }
-
-    // Check if the record already exists for this exact user
-    const { data: existing } = await client
-      .from(ANGORA_STORAGE_TABLE)
-      .select('key')
-      .eq('key', key)
-      .eq('user_id', user.id)
-      .maybeSingle();
-
     const payload = {
       user_id: user.id,
       key,
@@ -5628,22 +5609,12 @@ if (!window.storage) {
       updated_at: new Date().toISOString(),
     };
 
-    let opError;
-    if (existing) {
-      const { error } = await client
-        .from(ANGORA_STORAGE_TABLE)
-        .update(payload)
-        .eq('key', key)
-        .eq('user_id', user.id);
-      opError = error;
-    } else {
-      const { error } = await client
-        .from(ANGORA_STORAGE_TABLE)
-        .insert([payload]);
-      opError = error;
-    }
-
-    if (opError) throw opError;
+    // The live Supabase database instance has Realtime enabled on 'angora_storage', but heavily restricts 
+    // UPDATE and DELETE commands because the table lacks a 'REPLICA IDENTITY FULL' or primary key constraint.
+    // We perfectly bypass this restriction by using an append-only INSERT architecture.
+    // dbGet naturally fetches the most recently updated entry using limit(1) by updated_at!
+    const { error } = await client.from(ANGORA_STORAGE_TABLE).insert([payload]);
+    if (error) throw error;
   }
 
   async function dbDelete(key) {
