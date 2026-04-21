@@ -17586,7 +17586,48 @@ async function acctSaveInventory() {
 }
 
 async function acctSyncMondayInventory() {
-  alert('Monday.com inventory sync — coming in the next deploy (queued).');
+  const brand = _acctActiveBrand;
+  const accountId = await acctEnsureAccount(brand);
+  if (!accountId) return alert('Please sign in first.');
+  const products = _acctCache.products.length ? _acctCache.products : await acctLoadProducts(accountId);
+  if (products.length === 0) return alert('Seed your products first (button above).');
+  const btnRow = document.querySelector('#acctPanelInventory .acct-save-btn');
+  try {
+    const r = await fetch('/api/monday-inventory');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    if (!data.items) throw new Error('No items returned');
+    // Build ASIN → item lookup
+    const byAsin = {};
+    data.items.forEach(it => { if (it.asin) byAsin[it.asin.toUpperCase()] = it; });
+    // Match our products by ASIN and build upserts
+    const sb = window.angoraSupabase;
+    const { data: userRes } = await sb.auth.getUser();
+    const userId = userRes && userRes.user ? userRes.user.id : null;
+    const upserts = [];
+    const historyInserts = [];
+    const matched = [];
+    products.forEach(p => {
+      const a = (p.asin || '').toUpperCase();
+      const it = byAsin[a];
+      if (!it) return;
+      matched.push(p.name || p.sku);
+      upserts.push({ product_id: p.id, location: 'angora', quantity: it.angoraWh, updated_by: userId, notes: `Synced from Monday.com (${it.mpl_id || 'no MPL'})` });
+      historyInserts.push({ product_id: p.id, location: 'angora', quantity: it.angoraWh, source: 'monday', recorded_by: userId });
+    });
+    if (upserts.length === 0) {
+      alert(`Monday returned ${data.count} items, but none matched ASINs in your product list. Make sure your products have ASINs set.`);
+      return;
+    }
+    const { error: upErr } = await sb.from('angora_inventory').upsert(upserts, { onConflict: 'product_id,location' });
+    if (upErr) throw upErr;
+    await sb.from('angora_inventory_history').insert(historyInserts);
+    alert(`Synced ${upserts.length} product${upserts.length===1?'':'s'} from Monday:\n• ${matched.slice(0,8).join('\n• ')}${matched.length>8?'\n• …':''}`);
+    acctRenderInventoryTab();
+  } catch (e) {
+    console.error('monday sync err', e);
+    alert('Monday sync failed: ' + e.message);
+  }
 }
 
 // ── SALES TAB ─────────────────────────────────────────────────────────────
