@@ -7307,6 +7307,7 @@ function wkrRenderProductForm(p, brandVal) {
     ${fld('Retail Price','price',p.price)}
     ${fld('COGS / Unit','cogs',p.cogs)}
     ${fld('Ship Cost / Unit','shipCost',p.shipCost)}
+    ${fld('FBA Fee / Unit (manual $)','fbaOverride',p.fbaOverride,'number','0.01','e.g. 4.31 (blank = auto-calc)')}
   `;
 }
 
@@ -7330,6 +7331,7 @@ async function wkrSaveProductForm() {
     price:      n('price'),
     cogs:       n('cogs'),
     shipCost:   n('shipCost'),
+    fbaOverride: n('fbaOverride'),
     savedAt:    new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),
   };
 
@@ -7441,7 +7443,7 @@ function wkrAddProductToTable(product) {
     cogs:        product.cogs||0,
     shipCost:    product.shipCost||0,
     units:       0, adSpend:0, ppcPerUnit:0,
-    fbaOverride: 0, storage:0, refund:0, unitsInStock:0,
+    fbaOverride: product.fbaOverride || 0, storage:0, refund:0, unitsInStock:0,
   });
   wkrCalcRow(wkrRows[wkrRows.length - 1]);
   return id;
@@ -11118,7 +11120,7 @@ async function wkrBizProcessRows(rows) {
           bizCvr:      row.cvr,
           bizTitle:    row.title,
           adSpend:     0, ppcPerUnit:0,
-          fbaOverride: 0, storage:0, refund:0, unitsInStock:0,
+          fbaOverride: p.fbaOverride || 0, storage:0, refund:0, unitsInStock:0,
           returnQty:   0,
         });
         wkrCalcRow(wkrRows[wkrRows.length - 1]);
@@ -17138,10 +17140,3 @@ window.calDeleteAudit = async function() {
 
 </body>
 </html>
-
-
-
-
-
-
-git clone https://github.com/abtechsolutionagency/amazon-ppc-analyzer.git
