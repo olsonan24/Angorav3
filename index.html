@@ -18495,7 +18495,7 @@ async function acctPdfSaveRows() {
     const units = parseInt(tr.querySelector('.acctPdfUnits').value) || 0;
     const revenue = parseFloat(tr.querySelector('.acctPdfRev').value) || 0;
     if (units === 0 && revenue === 0) return;
-    inserts.push({ product_id: r.productId, sale_date: date, units_sold: units, revenue, source: 'amazon' });
+    inserts.push({ product_id: r.productId, sale_date: date, units_sold: units, revenue, source: 'amazon_pdf' });
   });
   if (inserts.length === 0) { alert('No rows selected / no units > 0.'); return; }
   const { error } = await sb.from('angora_daily_sales').upsert(inserts, { onConflict: 'product_id,sale_date' });
