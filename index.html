@@ -6808,7 +6808,7 @@ function sskuRenderStats() {
     { label:'Total Units',    value:totalUnits.toLocaleString(), sub:'ordered' },
     { label:'Total Sessions', value:totalSess.toLocaleString(), sub:'page visits' },
     { label:'Avg CVR',        value:avgCvr.toFixed(1)+'%', sub:'unit/session' },
-    { label:'Top SKU',        value:topSku?.sku || '—', sub:'$'+(topSku?.revenue||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) },
+    { label:'Top SKU',        value:topSku?.name || topSku?.sku || '—', sub:'$'+(topSku?.revenue||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) },
   ];
 
   document.getElementById('sskuStats').innerHTML = stats.map(s => `
@@ -6874,7 +6874,7 @@ function sskuApplyFilters() {
     return `<tr>
       <td style="color:var(--muted);font-size:9px;width:36px">${i+1}</td>
       <td style="min-width:140px">
-        <div style="font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--text);margin-bottom:3px">${r.sku || '—'}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--text);margin-bottom:3px">${r.name || r.sku || '—'}</div>
         ${asinLink}
       </td>
       <td style="max-width:280px;color:var(--muted);font-size:10px;line-height:1.4" title="${r.title.replace(/"/g,'&quot;')}">${titleTrunc || '—'}</td>
@@ -17688,7 +17688,7 @@ async function acctRenderInventoryTab() {
     if (spike) spikeCount++;
     const status = spike ? '<span class="acct-pill-warn">Spike</span>' : (runwayNum < 2 ? '<span class="acct-pill-danger">Out soon</span>' : (runwayNum < 4 ? '<span class="acct-pill-warn">Low</span>' : '<span class="acct-pill-ok">OK</span>'));
     return `<tr class="${rowClass}">
-      <td style="font-weight:700"><a href="#" onclick="event.preventDefault();acctOpenProductEdit('${p.id}')" style="color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent)">${p.sku || '—'}</a></td>
+      <td style="font-weight:700"><a href="#" onclick="event.preventDefault();acctOpenProductEdit('${p.id}')" style="color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent)">${p.name || p.sku || '—'}</a></td>
       <td>${(p.name||'').replace(/</g,'&lt;').slice(0,40)}</td>
       <td style="text-align:right"><input type="number" min="0" value="${lo.fba}" data-pid="${p.id}" data-loc="fba" oninput="acctInvCellChange(this)"></td>
       <td style="text-align:right"><input type="number" min="0" value="${lo.awd}" data-pid="${p.id}" data-loc="awd" oninput="acctInvCellChange(this)"></td>
@@ -17984,7 +17984,7 @@ async function acctRenderSalesTab() {
   }
   // populate sku dropdown
   const curSku = skuSel.value;
-  skuSel.innerHTML = '<option value="__all__">All SKUs</option>' + products.map(p => `<option value="${p.id}">${p.sku || p.name}</option>`).join('');
+  skuSel.innerHTML = '<option value="__all__">All SKUs</option>' + products.map(p => `<option value="${p.id}">${p.name || p.sku}</option>`).join('');
   if (curSku) skuSel.value = curSku;
   skuSel.onchange = () => acctRenderSalesTab();
 
@@ -18170,7 +18170,7 @@ async function acctAddManualSale() {
   if (!accountId) return;
   const products = _acctCache.products.length ? _acctCache.products : await acctLoadProducts(accountId);
   if (products.length === 0) { alert('No products yet. Seed products from the Inventory tab first.'); return; }
-  const skuOpts = products.map((p, i) => `${i+1}. ${p.sku || p.name}`).join('\n');
+  const skuOpts = products.map((p, i) => `${i+1}. ${p.name || p.sku}`).join('\n');
   const idx = prompt('Which SKU? Enter number:\n' + skuOpts);
   if (!idx) return;
   const p = products[parseInt(idx)-1]; if (!p) return alert('Invalid selection');
@@ -18637,7 +18637,7 @@ async function acctRenderEconomicsTab() {
     totU += g.units; totRev += g.netRev; totFba += g.fba; totRef += g.referral; totCogs += g.cogs; totPp += g.pandp; totAds += g.ads; totNet += net;
     const marginClass = margin >= 20 ? 'acct-pill-ok' : (margin >= 10 ? 'acct-pill-warn' : 'acct-pill-danger');
     return `<tr>
-      <td style="font-weight:700">${g.product.sku || '—'}</td>
+      <td style="font-weight:700">${g.product.name || g.product.sku || '—'}</td>
       <td style="text-align:right">${g.units.toLocaleString()}</td>
       <td style="text-align:right">$${g.netRev.toFixed(0)}</td>
       <td style="text-align:right;color:#ffb8c6">-$${g.fba.toFixed(0)}</td>
@@ -18891,7 +18891,7 @@ async function acctRenderOrdersTab() {
   };
   tbody.innerHTML = pos.map(po => {
     const prod = prodById[po.product_id];
-    const prodName = prod ? (prod.sku || prod.name || '') : '\u2014';
+    const prodName = prod ? (prod.name || prod.sku || '') : '\u2014';
     const exp = po.expected_date ? new Date(po.expected_date).toLocaleDateString() : '\u2014';
     const val = po.total_value != null ? '$' + Number(po.total_value).toLocaleString() : '\u2014';
     return `<tr>
@@ -18924,7 +18924,7 @@ function acctOpenPoEdit(poId) {
   const m = document.createElement('div');
   m.id = 'acctPoModal';
   m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px';
-  const prodOpts = (_acctCache.products||[]).map(p => `<option value="${p.id}"${po.product_id===p.id?' selected':''}>${(p.sku||p.name||'').replace(/</g,'&lt;')}</option>`).join('');
+  const prodOpts = (_acctCache.products||[]).map(p => `<option value="${p.id}"${po.product_id===p.id?' selected':''}>${(p.name||p.sku||'').replace(/</g,'&lt;')}</option>`).join('');
   const statusOpts = ['pending','in_production','in_transit','received','cancelled'].map(s => `<option value="${s}"${po.po_status===s?' selected':''}>${s.replace('_',' ')}</option>`).join('');
   const f = (id, label, value, type='text', attrs='') => `<div style="display:flex;flex-direction:column;gap:4px"><label style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#a0a2b0">${label}</label><input id="${id}" type="${type}" value="${value==null?'':String(value).replace(/"/g,'&quot;')}" ${attrs} style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px"></div>`;
   m.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;max-width:720px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
