@@ -15488,6 +15488,14 @@ window.calDeleteAudit = async function() {
     <div style="font-family:'DM Mono',monospace;font-size:10px;padding:4px 10px;border-radius:6px;background:rgba(77,255,180,0.1);color:#4dffb4;border:1px solid rgba(77,255,180,0.2)">Current</div>
   </div>
 
+  <div class="settings-row" onclick="gardenSyncPartnerLibrary()" style="cursor:pointer">
+    <div class="settings-row-left">
+      <div class="settings-row-label">Sync Partners from Monday</div>
+      <div class="settings-row-sub" id="partnerSyncSub">Pull Partner Library 2.0 → angora_accounts</div>
+    </div>
+    <div id="partnerSyncBtn" style="font-family:'DM Mono',monospace;font-size:10px;padding:4px 10px;border-radius:6px;background:rgba(163,101,255,0.1);color:var(--accent);border:1px solid rgba(163,101,255,0.3)">Sync Now</div>
+  </div>
+
 </div>
 </div>
 
@@ -18497,9 +18505,11 @@ async function acctPdfSaveRows() {
   acctRenderSalesTab();
 }
 
-// ── FBA FEE AUTO-CALC (Amazon 2025/2026 US FBA fulfillment fee schedule) ─────
+// ── FBA FEE AUTO-CALC (Amazon 2025 US FBA fulfillment fee schedule) ─────
 // Source: Amazon Seller Central FBA fee schedule effective Jan 15, 2025. Amazon
-// typically updates in mid-Jan — 2026 update (if different) should slot in here.
+// typically updates mid-Jan each year. When 2026 rates publish, bump the rates
+// below. Manual per-product override lives in angora_products.fba_fee_manual
+// and takes precedence via acctFbaPerUnit().
 // Returns the fulfillment fee per unit in USD, or null if dimensions/weight missing.
 // Tier logic: size tier first (small_std / large_std / large_bulky / extra_large),
 // then weight bucket within tier. Billable weight for large+ = max(actual, L*W*H/139).
@@ -19076,6 +19086,66 @@ async function acctDeleteNote(noteId) {
   if (error) return alert('Delete failed: ' + error.message);
   document.getElementById('acctNoteModal').remove();
   acctRenderNotesTab();
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// PARTNER LIBRARY 2.0 SYNC — pulls Monday board 18408186263 into angora_accounts
+// ═════════════════════════════════════════════════════════════════════════
+async function gardenSyncPartnerLibrary() {
+  const sub = document.getElementById('partnerSyncSub');
+  const btn = document.getElementById('partnerSyncBtn');
+  if (!sub || !btn) return;
+  const sb = window.angoraSupabase;
+  if (!sb) { alert('Supabase not ready'); return; }
+  btn.textContent = 'Syncing\u2026';
+  sub.textContent = 'Fetching Monday board\u2026';
+  try {
+    const resp = await fetch('/api/partner-library');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const partners = data.partners || [];
+    sub.textContent = `Got ${partners.length} partners. Upserting\u2026`;
+    let created = 0, updated = 0, skipped = 0;
+    for (const p of partners) {
+      if (!p.brand_name) { skipped++; continue; }
+      const payload = {
+        brand_name: p.brand_name,
+        account_name: p.account_name || p.brand_name,
+        client_name: p.client_name,
+        client_email: p.client_email,
+        client_cc_email: p.client_cc_email,
+        phone: p.phone,
+        monday_id: p.monday_id,
+        csm: p.csm,
+        osm: p.osm,
+        psm: p.psm,
+        client_since: p.client_since,
+        garden_status: p.garden_status,
+        inventory_status: p.inventory_status,
+        garden_account_link: p.garden_account_link,
+        updated_at: new Date().toISOString(),
+      };
+      // Remove keys that might not exist on the table to stay forward-compatible
+      Object.keys(payload).forEach(k => { if (payload[k] == null) delete payload[k]; });
+      const { data: existing } = await sb.from('angora_accounts').select('id').eq('brand_name', p.brand_name).maybeSingle();
+      if (existing) {
+        const { error } = await sb.from('angora_accounts').update(payload).eq('id', existing.id);
+        if (!error) updated++; else console.warn('update err', p.brand_name, error);
+      } else {
+        payload.created_at = new Date().toISOString();
+        const { error } = await sb.from('angora_accounts').insert([payload]);
+        if (!error) created++; else console.warn('insert err', p.brand_name, error);
+      }
+    }
+    sub.textContent = `Done \u2022 ${created} created \u2022 ${updated} updated \u2022 ${skipped} skipped (no brand)`;
+    btn.textContent = 'Sync Now';
+    // Try to refresh accounts list if the app has one
+    if (typeof loadAccountsList === 'function') { try { await loadAccountsList(); } catch(e){} }
+  } catch (e) {
+    console.error('partner sync', e);
+    sub.textContent = 'Error: ' + (e.message || e) + '. Check Monday API key in Vercel env.';
+    btn.textContent = 'Retry';
+  }
 }
 
 </script>
