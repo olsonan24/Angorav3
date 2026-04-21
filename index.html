@@ -17313,14 +17313,14 @@ window.calDeleteAudit = async function() {
               <option value="area">Area</option>
             </select>
             <button class="acct-save-btn" onclick="acctAddManualSale()" style="margin-left:auto">+ Manual Entry</button>
-            <button class="acct-save-btn" onclick="acctUploadPdf()">\u2b06 Upload Amazon PDF</button>
+            <button class="acct-save-btn" onclick="acctUploadReport()">\u2b06 Upload Amazon PDF / CSV</button>
           </div>
           <div class="acct-stat-grid" id="acctSalesStats"></div>
           <div class="acct-chart-wrap"><canvas id="acctSalesChart"></canvas></div>
           <div id="acctSalesEmpty" class="acct-empty" style="display:none">
             No sales data yet for this account.<br>
             <span class="acct-empty-action" onclick="acctAddManualSale()">Add sale manually</span>
-            <span class="acct-empty-action" onclick="acctUploadPdf()" style="margin-left:8px">Upload Amazon report</span>
+            <span class="acct-empty-action" onclick="acctUploadReport()" style="margin-left:8px">Upload Amazon report (PDF/CSV)</span>
           </div>
         </div>
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
@@ -18026,8 +18026,8 @@ async function acctAddManualSale() {
   acctRenderSalesTab();
 }
 
-// ── AMAZON PDF UPLOAD + PARSER ────────────────────────────────────────────
-async function acctUploadPdf() {
+// ── AMAZON PDF / CSV / XLSX UPLOAD + PARSER ───────────────────────────────
+async function acctUploadReport() {
   const brand = _acctActiveBrand;
   const accountId = await acctEnsureAccount(brand);
   if (!accountId) return alert('Please sign in first.');
@@ -18035,16 +18035,136 @@ async function acctUploadPdf() {
   _acctCache.products = products;
   if (products.length === 0) return alert('Seed your products first — open Inventory tab.');
 
-  // File picker
+  // File picker (PDF, CSV, or XLSX)
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = 'application/pdf';
+  input.accept = 'application/pdf,.csv,.xlsx,.xls,text/csv';
   input.onchange = async () => {
     const file = input.files && input.files[0];
     if (!file) return;
-    await acctParseAmazonPdf(file);
+    const name = (file.name || '').toLowerCase();
+    if (name.endsWith('.pdf') || file.type === 'application/pdf') {
+      await acctParseAmazonPdf(file);
+    } else if (name.endsWith('.csv') || name.endsWith('.xlsx') || name.endsWith('.xls')) {
+      await acctParseAmazonSheet(file);
+    } else {
+      alert('Unsupported file type. Use PDF, CSV, or XLSX.');
+    }
   };
   input.click();
+}
+
+// Back-compat alias in case any old button still calls acctUploadPdf()
+async function acctUploadPdf() { return acctUploadReport(); }
+
+// Parse Amazon CSV/XLSX Business Report into rows {asin,units,revenue,date}
+async function acctParseAmazonSheet(file) {
+  if (typeof XLSX === 'undefined') { alert('Spreadsheet library still loading. Try again in 2 seconds.'); return; }
+  const sb = window.angoraSupabase;
+  const { data: userRes } = await sb.auth.getUser();
+  const userId = userRes && userRes.user ? userRes.user.id : null;
+  const path = `${_acctCache.accountId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9_.-]/g,'_')}`;
+  let uploadUrl = null;
+  try {
+    const { error: upErr } = await sb.storage.from('angora-pdfs').upload(path, file, { upsert: false });
+    if (!upErr) {
+      const { data: pub } = sb.storage.from('angora-pdfs').getPublicUrl(path);
+      uploadUrl = pub.publicUrl;
+    }
+  } catch(e) { console.warn('storage upload err', e); }
+  await sb.from('angora_pdf_uploads').insert({ account_id: _acctCache.accountId, uploaded_by: userId, file_name: file.name, file_path: uploadUrl || path, report_type: 'business_report_csv', status: 'processing' }).then(()=>{}, ()=>{});
+
+  const buf = await file.arrayBuffer();
+  // For CSV let XLSX auto-detect; for XLSX read as array buffer
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  if (!ws) { alert('Could not read any sheet from that file.'); return; }
+
+  // Amazon Business/Sales reports may have a metadata row before the header.
+  // Convert to array-of-arrays, then auto-detect the header row (first row that
+  // contains an "ASIN" or "Child ASIN" header cell).
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false });
+  if (aoa.length === 0) { alert('Sheet is empty.'); return; }
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(aoa.length, 10); i++) {
+    const rowStr = aoa[i].map(c => String(c||'').toLowerCase()).join('|');
+    if (rowStr.includes('asin') || rowStr.includes('child asin') || rowStr.includes('parent asin')) { headerIdx = i; break; }
+  }
+  if (headerIdx < 0) headerIdx = 0;
+  const headers = aoa[headerIdx].map(h => String(h||'').trim());
+  const dataRows = aoa.slice(headerIdx + 1).filter(r => r.some(c => String(c||'').trim() !== ''));
+
+  // Normalize header keys to find columns
+  const norm = s => String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
+  const hmap = {};
+  headers.forEach((h, i) => { hmap[norm(h)] = i; });
+  const pick = (...keys) => {
+    for (const k of keys) { const i = hmap[norm(k)]; if (i !== undefined) return i; }
+    return -1;
+  };
+  const idxAsin   = pick('childasin','asin','(child)asin','parentasin');
+  const idxSku    = pick('sku','sellersku');
+  const idxUnits  = pick('unitsordered','units','unitssold','totalunitsordered','unitsorderedb2b');
+  const idxRev    = pick('orderedproductsales','productsales','totalsales','revenue','orderedproductsalesb2b');
+  const idxDate   = pick('date','reportdate','day','orderdate');
+  const idxAds    = pick('spend','adspend','costs');
+  const idxFees   = pick('fbafees','amazonfees','fulfilmentfees','fulfillmentfees');
+
+  // Match to products by ASIN (preferred), then SKU
+  const asinMap = {}, skuMap = {};
+  _acctCache.products.forEach(p => {
+    if (p.asin) asinMap[String(p.asin).toUpperCase()] = p;
+    if (p.sku)  skuMap[String(p.sku).toUpperCase()]   = p;
+  });
+
+  // Default date = today unless found in sheet or filename
+  let defaultDate = new Date().toISOString().slice(0,10);
+  const fnDate = (file.name||'').match(/(\d{4}-\d{2}-\d{2})/);
+  if (fnDate) defaultDate = fnDate[1];
+
+  const rows = [];
+  dataRows.forEach(r => {
+    const asinRaw = idxAsin >= 0 ? String(r[idxAsin]||'').trim() : '';
+    const skuRaw  = idxSku  >= 0 ? String(r[idxSku]||'').trim()  : '';
+    const asinM = asinRaw.toUpperCase().match(/B0[A-Z0-9]{8}/);
+    const asin = asinM ? asinM[0] : '';
+    const prod = (asin && asinMap[asin]) || (skuRaw && skuMap[skuRaw.toUpperCase()]) || null;
+    const toNum = v => {
+      if (v === null || v === undefined) return 0;
+      if (typeof v === 'number') return v;
+      const n = parseFloat(String(v).replace(/[$,\s]/g,''));
+      return isNaN(n) ? 0 : n;
+    };
+    const units   = idxUnits >= 0 ? toNum(r[idxUnits]) : 0;
+    const revenue = idxRev   >= 0 ? toNum(r[idxRev])   : 0;
+    const ads     = idxAds   >= 0 ? toNum(r[idxAds])   : 0;
+    const fees    = idxFees  >= 0 ? toNum(r[idxFees])  : 0;
+    // Date per row if present, else default
+    let rowDate = defaultDate;
+    if (idxDate >= 0 && r[idxDate]) {
+      const v = r[idxDate];
+      try {
+        const d = (v instanceof Date) ? v : new Date(v);
+        if (!isNaN(d.getTime())) rowDate = d.toISOString().slice(0,10);
+      } catch(e){}
+    }
+    // Skip rows with neither units nor revenue
+    if (units === 0 && revenue === 0 && !asin && !skuRaw) return;
+    rows.push({
+      asin: asin || (skuRaw ? '(sku)' : ''),
+      productId: prod ? prod.id : null,
+      productName: prod ? (prod.name || prod.sku) : (asin || skuRaw || '(not in account)'),
+      date: rowDate,
+      units, revenue, ads, fees,
+      rawLine: headers.map((h,i) => h + ':' + (r[i]||'')).join(' | ').slice(0, 180),
+    });
+  });
+
+  if (rows.length === 0) {
+    alert('No recognizable rows found. Make sure this is an Amazon Business Report CSV (with ASIN + Units Ordered + Ordered Product Sales columns).');
+    return;
+  }
+  acctOpenPdfPreview(rows, file.name, `Parsed ${rows.length} rows from ${file.name} (header row ${headerIdx+1})`);
 }
 
 async function acctParseAmazonPdf(file) {
