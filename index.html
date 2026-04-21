@@ -19078,7 +19078,9 @@ async function acctRenderNotesTab() {
   if (!accountId) { cal.innerHTML = '<div style="grid-column:1/-1;color:#a0a2b0;padding:20px;text-align:center">No account selected.</div>'; return; }
   const notes = await acctLoadNotes(accountId, year, month);
   _acctNotesState.cache = notes;
-  const notesByDay = {}; notes.forEach(n => { const d = new Date(n.note_date).getDate(); (notesByDay[d] = notesByDay[d] || []).push(n); });
+  // Parse YYYY-MM-DD as local date (not UTC) so MDT doesn't shift notes back a day
+  const parseLocalNoteDate = (s) => { const [yy,mm,dd] = String(s).slice(0,10).split('-').map(Number); return new Date(yy, mm-1, dd); };
+  const notesByDay = {}; notes.forEach(n => { const d = parseLocalNoteDate(n.note_date).getDate(); (notesByDay[d] = notesByDay[d] || []).push(n); });
   const firstDow = new Date(year, month, 1).getDay();
   const lastDate = new Date(year, month+1, 0).getDate();
   const today = new Date(); const isToday = (d) => today.getFullYear()===year && today.getMonth()===month && today.getDate()===d;
@@ -19093,7 +19095,7 @@ async function acctRenderNotesTab() {
     cells.push(`<div onclick="acctOpenNoteEdit(null,'${iso}')" style="background:var(--surface2);border:1px solid ${border};border-radius:6px;min-height:64px;padding:6px 8px;cursor:pointer;transition:all 0.15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='${border}'"><div style="font-weight:700;color:var(--text)">${d}</div>${dot}</div>`);
   }
   cal.innerHTML = hdr + cells.join('');
-  list.innerHTML = notes.length ? notes.slice(0,20).map(n => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer" onclick="acctOpenNoteEdit('${n.id}')"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--accent);text-transform:uppercase;letter-spacing:1.5px">${new Date(n.note_date).toLocaleDateString()} \u2022 ${(n.author_email||'').split('@')[0]}</div>${(n.tags||[]).slice(0,3).map(t=>`<span style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:8px;margin-left:4px">${t}</span>`).join('')}</div><div style="font-size:11px;color:var(--text);line-height:1.4">${(n.body||'').replace(/</g,'&lt;').slice(0,200)}${n.body&&n.body.length>200?'\u2026':''}</div></div>`).join('') : '<div style="color:#a0a2b0;padding:20px;text-align:center">No notes this month yet. Click any day on the calendar to add one.</div>';
+  list.innerHTML = notes.length ? notes.slice(0,20).map(n => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer" onclick="acctOpenNoteEdit('${n.id}')"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--accent);text-transform:uppercase;letter-spacing:1.5px">${parseLocalNoteDate(n.note_date).toLocaleDateString()} \u2022 ${(n.author_email||'').split('@')[0]}</div>${(n.tags||[]).slice(0,3).map(t=>`<span style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:8px;margin-left:4px">${t}</span>`).join('')}</div><div style="font-size:11px;color:var(--text);line-height:1.4">${(n.body||'').replace(/</g,'&lt;').slice(0,200)}${n.body&&n.body.length>200?'\u2026':''}</div></div>`).join('') : '<div style="color:#a0a2b0;padding:20px;text-align:center">No notes this month yet. Click any day on the calendar to add one.</div>';
 }
 function acctNotesShiftMonth(delta) {
   _acctNotesState.month += delta;
