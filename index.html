@@ -17191,6 +17191,8 @@ window.calDeleteAudit = async function() {
       <button class="acct-tab" data-tab="sales" onclick="acctSwitchTab('sales')">Sales</button>
       <button class="acct-tab" data-tab="inventory" onclick="acctSwitchTab('inventory')">Inventory</button>
       <button class="acct-tab" data-tab="economics" onclick="acctSwitchTab('economics')">Economics</button>
+      <button class="acct-tab" data-tab="orders" onclick="acctSwitchTab('orders')">Orders</button>
+      <button class="acct-tab" data-tab="notes" onclick="acctSwitchTab('notes')">Notes</button>
       <button class="acct-tab" data-tab="messages" onclick="acctSwitchTab('messages')">Messages</button>
     </div>
 
@@ -17421,6 +17423,50 @@ window.calDeleteAudit = async function() {
         </div>
       </div>
 
+      <!-- ORDERS TAB (Purchase Orders) -->
+      <div class="acct-tab-panel" data-tabpanel="orders" id="acctPanelOrders">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div class="acct-section-title" style="margin-bottom:0">Purchase Orders</div>
+            <button class="acct-save-btn" onclick="acctOpenPoEdit(null)">+ New PO</button>
+          </div>
+          <div class="acct-stat-grid" id="acctPoStats" style="margin-bottom:18px"></div>
+          <div style="overflow-x:auto">
+            <table class="acct-data-table" id="acctPoTable">
+              <thead><tr>
+                <th>PO#</th><th>Product</th>
+                <th style="text-align:right">Units</th>
+                <th style="text-align:right">Value</th>
+                <th>Origin</th><th>Destination</th>
+                <th>Expected</th><th>Status</th><th></th>
+              </tr></thead>
+              <tbody id="acctPoTbody"></tbody>
+            </table>
+          </div>
+          <div id="acctPoEmpty" class="acct-empty" style="display:none">
+            No purchase orders yet.<br>
+            <span class="acct-empty-action" onclick="acctOpenPoEdit(null)">Create first PO</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- NOTES TAB (calendar) -->
+      <div class="acct-tab-panel" data-tabpanel="notes" id="acctPanelNotes">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <button class="acct-save-btn" onclick="acctNotesShiftMonth(-1)" style="padding:6px 10px">\u2039</button>
+              <div class="acct-section-title" id="acctNotesMonthLbl" style="margin-bottom:0;min-width:200px;text-align:center">\u2014</div>
+              <button class="acct-save-btn" onclick="acctNotesShiftMonth(1)" style="padding:6px 10px">\u203a</button>
+            </div>
+            <button class="acct-save-btn" onclick="acctOpenNoteEdit(null)">+ New Note</button>
+          </div>
+          <div id="acctNotesCalendar" style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;font-family:'DM Mono',monospace;font-size:10px"></div>
+          <div class="acct-section-title" style="margin-top:18px;font-size:11px">Recent Notes</div>
+          <div id="acctNotesList" style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto"></div>
+        </div>
+      </div>
+
     </div><!-- /scrollable body -->
   </div><!-- /panel -->
 </div><!-- /acctProfileOverlay -->
@@ -17443,6 +17489,8 @@ function acctSwitchTab(tab) {
   if (scroll) scroll.scrollTop = 0;
   if (tab === 'sales')      acctRenderSalesTab();
   if (tab === 'inventory')  acctRenderInventoryTab();
+  if (tab === 'orders')     acctRenderOrdersTab();
+  if (tab === 'notes')      acctRenderNotesTab();
   if (tab === 'economics')  acctRenderEconomicsTab();
   if (tab === 'messages')   acctRenderMessagesTab();
 }
@@ -18803,6 +18851,233 @@ async function acctSendMessage() {
   input.value = '';
   acctRenderMessagesTab();
 }
+
+// ═════════════════════════════════════════════════════════════════════════
+// ORDERS TAB — Purchase Order CRUD (angora_purchase_orders)
+// ═════════════════════════════════════════════════════════════════════════
+let _acctPoCache = [];
+async function acctLoadPOs(accountId) {
+  const sb = window.angoraSupabase; if (!sb) return [];
+  const { data, error } = await sb.from('angora_purchase_orders').select('*').eq('account_id', accountId).order('expected_date', { ascending: true });
+  if (error) { console.warn('PO load err', error); return []; }
+  return data || [];
+}
+async function acctRenderOrdersTab() {
+  const tbody = document.getElementById('acctPoTbody');
+  const empty = document.getElementById('acctPoEmpty');
+  const stats = document.getElementById('acctPoStats');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="9" style="padding:16px;text-align:center;color:#a0a2b0">Loading\u2026</td></tr>';
+  const accountId = _acctCache.accountId || await acctEnsureAccount(_acctActiveBrand);
+  if (!accountId) { tbody.innerHTML=''; empty.style.display='block'; return; }
+  const pos = await acctLoadPOs(accountId);
+  _acctPoCache = pos;
+  if (pos.length === 0) { tbody.innerHTML=''; empty.style.display='block'; stats.innerHTML=''; return; }
+  empty.style.display='none';
+  const prodById = {}; (_acctCache.products||[]).forEach(p => prodById[p.id] = p);
+  const statusPill = s => {
+    const m = { pending:'warn', in_production:'warn', in_transit:'ok', received:'ok', cancelled:'danger' };
+    return `<span class="acct-pill-${m[s]||'warn'}">${s.replace('_',' ')}</span>`;
+  };
+  tbody.innerHTML = pos.map(po => {
+    const prod = prodById[po.product_id];
+    const prodName = prod ? (prod.sku || prod.name || '') : '\u2014';
+    const exp = po.expected_date ? new Date(po.expected_date).toLocaleDateString() : '\u2014';
+    const val = po.total_value != null ? '$' + Number(po.total_value).toLocaleString() : '\u2014';
+    return `<tr>
+      <td style="font-weight:700">${(po.po_number||'').replace(/</g,'&lt;')}</td>
+      <td>${prodName}</td>
+      <td style="text-align:right">${(po.units||0).toLocaleString()}</td>
+      <td style="text-align:right">${val}</td>
+      <td>${(po.origin||'\u2014')}</td>
+      <td>${(po.destination||'\u2014')}</td>
+      <td>${exp}</td>
+      <td>${statusPill(po.po_status||'pending')}</td>
+      <td><button onclick="acctOpenPoEdit('${po.id}')" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);cursor:pointer;font-family:'DM Mono',monospace;font-size:10px">Edit</button></td>
+    </tr>`;
+  }).join('');
+  const totalUnits = pos.reduce((a,p)=>a+(p.units||0),0);
+  const totalVal = pos.reduce((a,p)=>a+Number(p.total_value||0),0);
+  const inFlight = pos.filter(p=>['in_production','in_transit'].includes(p.po_status)).reduce((a,p)=>a+(p.units||0),0);
+  const pending = pos.filter(p=>p.po_status==='pending').length;
+  stats.innerHTML = `
+    <div class="acct-stat-card"><div class="acct-stat-label">Open POs</div><div class="acct-stat-value">${pos.filter(p=>p.po_status!=='received'&&p.po_status!=='cancelled').length}</div><div class="acct-stat-sub">active orders</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Units In Flight</div><div class="acct-stat-value">${inFlight.toLocaleString()}</div><div class="acct-stat-sub">in production or transit</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Total Units</div><div class="acct-stat-value">${totalUnits.toLocaleString()}</div><div class="acct-stat-sub">across all POs</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Total Value</div><div class="acct-stat-value">$${totalVal.toLocaleString(undefined,{maximumFractionDigits:0})}</div><div class="acct-stat-sub">booked value</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Pending</div><div class="acct-stat-value">${pending}</div><div class="acct-stat-sub">awaiting production</div></div>
+  `;
+}
+function acctOpenPoEdit(poId) {
+  const po = poId ? _acctPoCache.find(x=>x.id===poId) : {};
+  const old = document.getElementById('acctPoModal'); if (old) old.remove();
+  const m = document.createElement('div');
+  m.id = 'acctPoModal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px';
+  const prodOpts = (_acctCache.products||[]).map(p => `<option value="${p.id}"${po.product_id===p.id?' selected':''}>${(p.sku||p.name||'').replace(/</g,'&lt;')}</option>`).join('');
+  const statusOpts = ['pending','in_production','in_transit','received','cancelled'].map(s => `<option value="${s}"${po.po_status===s?' selected':''}>${s.replace('_',' ')}</option>`).join('');
+  const f = (id, label, value, type='text', attrs='') => `<div style="display:flex;flex-direction:column;gap:4px"><label style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#a0a2b0">${label}</label><input id="${id}" type="${type}" value="${value==null?'':String(value).replace(/"/g,'&quot;')}" ${attrs} style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px"></div>`;
+  m.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;max-width:720px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:800;color:var(--accent);font-family:'DM Mono',monospace;font-size:13px;text-transform:uppercase;letter-spacing:2px">${poId?'Edit':'New'} Purchase Order</div>
+      <button onclick="document.getElementById('acctPoModal').remove()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text);cursor:pointer;font-family:'DM Mono',monospace;font-size:11px">\u2715</button>
+    </div>
+    <div style="padding:18px 22px;overflow-y:auto;flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      ${f('poNum','PO Number', po.po_number)}
+      <div style="display:flex;flex-direction:column;gap:4px"><label style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#a0a2b0">Product</label><select id="poProduct" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px"><option value="">\u2014 none \u2014</option>${prodOpts}</select></div>
+      <div style="display:flex;flex-direction:column;gap:4px"><label style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#a0a2b0">Status</label><select id="poStatus" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px">${statusOpts}</select></div>
+      ${f('poUnits','Units', po.units||0, 'number', 'min="0"')}
+      ${f('poValue','Total Value ($)', po.total_value, 'number', 'step="0.01" min="0"')}
+      ${f('poOrigin','Origin', po.origin, 'text', 'placeholder="factory / China"')}
+      ${f('poDest','Destination', po.destination, 'text', 'placeholder="warehouse / FBA"')}
+      ${f('poExp','Expected Date', po.expected_date||'', 'date')}
+      ${f('poRec','Received Date', po.received_date||'', 'date')}
+      <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:4px"><label style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#a0a2b0">Notes</label><textarea id="poNotes" rows="3" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px;resize:vertical">${(po.notes||'').replace(/</g,'&lt;')}</textarea></div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div>${poId?`<button onclick="acctDeletePo('${poId}')" style="background:transparent;border:1px solid #ef4444;border-radius:8px;padding:7px 14px;color:#ef4444;cursor:pointer;font-family:'DM Mono',monospace;font-size:11px">Delete</button>`:''}</div>
+      <div style="display:flex;gap:8px"><button onclick="document.getElementById('acctPoModal').remove()" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text);cursor:pointer;font-family:'DM Mono',monospace;font-size:11px">Cancel</button><button class="acct-save-btn" onclick="acctSavePo(${poId?`'${poId}'`:'null'})">Save PO</button></div>
+    </div></div>`;
+  document.body.appendChild(m);
+}
+async function acctSavePo(poId) {
+  const sb = window.angoraSupabase; if (!sb) return;
+  const v = id => document.getElementById(id)?.value;
+  const num = s => { const n = parseFloat(s); return isNaN(n)?null:n; };
+  const accountId = _acctCache.accountId;
+  const payload = {
+    account_id: accountId,
+    po_number: v('poNum') || null,
+    product_id: v('poProduct') || null,
+    po_status: v('poStatus') || 'pending',
+    units: parseInt(v('poUnits')) || 0,
+    total_value: num(v('poValue')),
+    origin: v('poOrigin') || null,
+    destination: v('poDest') || null,
+    expected_date: v('poExp') || null,
+    received_date: v('poRec') || null,
+    notes: v('poNotes') || null,
+    updated_at: new Date().toISOString(),
+  };
+  if (!payload.po_number) return alert('PO Number is required');
+  let result;
+  if (poId) result = await sb.from('angora_purchase_orders').update(payload).eq('id', poId);
+  else result = await sb.from('angora_purchase_orders').insert([payload]);
+  if (result.error) return alert('Save failed: ' + result.error.message);
+  document.getElementById('acctPoModal').remove();
+  acctRenderOrdersTab();
+}
+async function acctDeletePo(poId) {
+  if (!confirm('Delete this PO? This cannot be undone.')) return;
+  const sb = window.angoraSupabase; if (!sb) return;
+  const { error } = await sb.from('angora_purchase_orders').delete().eq('id', poId);
+  if (error) return alert('Delete failed: ' + error.message);
+  document.getElementById('acctPoModal').remove();
+  acctRenderOrdersTab();
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// NOTES TAB — calendar + CRUD (angora_notes)
+// ═════════════════════════════════════════════════════════════════════════
+let _acctNotesState = { year: null, month: null, cache: [] };
+async function acctLoadNotes(accountId, year, month) {
+  const sb = window.angoraSupabase; if (!sb) return [];
+  const first = `${year}-${String(month+1).padStart(2,'0')}-01`;
+  const last = new Date(year, month+1, 0).toISOString().slice(0,10);
+  const { data, error } = await sb.from('angora_notes').select('*').eq('account_id', accountId).gte('note_date', first).lte('note_date', last).order('note_date', { ascending: false });
+  if (error) { console.warn('notes load', error); return []; }
+  return data || [];
+}
+async function acctRenderNotesTab() {
+  const cal = document.getElementById('acctNotesCalendar');
+  const list = document.getElementById('acctNotesList');
+  const lbl = document.getElementById('acctNotesMonthLbl');
+  if (!cal) return;
+  const now = new Date();
+  if (_acctNotesState.year == null) { _acctNotesState.year = now.getFullYear(); _acctNotesState.month = now.getMonth(); }
+  const { year, month } = _acctNotesState;
+  const monthName = new Date(year, month, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  lbl.textContent = monthName;
+  const accountId = _acctCache.accountId || await acctEnsureAccount(_acctActiveBrand);
+  if (!accountId) { cal.innerHTML = '<div style="grid-column:1/-1;color:#a0a2b0;padding:20px;text-align:center">No account selected.</div>'; return; }
+  const notes = await acctLoadNotes(accountId, year, month);
+  _acctNotesState.cache = notes;
+  const notesByDay = {}; notes.forEach(n => { const d = new Date(n.note_date).getDate(); (notesByDay[d] = notesByDay[d] || []).push(n); });
+  const firstDow = new Date(year, month, 1).getDay();
+  const lastDate = new Date(year, month+1, 0).getDate();
+  const today = new Date(); const isToday = (d) => today.getFullYear()===year && today.getMonth()===month && today.getDate()===d;
+  const cells = [];
+  const hdr = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(h => `<div style="font-size:9px;color:#a0a2b0;text-transform:uppercase;letter-spacing:1.5px;padding:6px 8px;text-align:center">${h}</div>`).join('');
+  for (let i=0;i<firstDow;i++) cells.push(`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;min-height:64px;opacity:0.3"></div>`);
+  for (let d=1;d<=lastDate;d++) {
+    const dayNotes = notesByDay[d] || [];
+    const dot = dayNotes.length ? `<div style="display:flex;gap:3px;margin-top:4px;flex-wrap:wrap">${dayNotes.slice(0,3).map(()=>`<div style="width:6px;height:6px;border-radius:50%;background:var(--accent)"></div>`).join('')}${dayNotes.length>3?`<div style="font-size:8px;color:var(--accent)">+${dayNotes.length-3}</div>`:''}</div>` : '';
+    const border = isToday(d) ? 'var(--accent)' : 'var(--border)';
+    const iso = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    cells.push(`<div onclick="acctOpenNoteEdit(null,'${iso}')" style="background:var(--surface2);border:1px solid ${border};border-radius:6px;min-height:64px;padding:6px 8px;cursor:pointer;transition:all 0.15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='${border}'"><div style="font-weight:700;color:var(--text)">${d}</div>${dot}</div>`);
+  }
+  cal.innerHTML = hdr + cells.join('');
+  list.innerHTML = notes.length ? notes.slice(0,20).map(n => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer" onclick="acctOpenNoteEdit('${n.id}')"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--accent);text-transform:uppercase;letter-spacing:1.5px">${new Date(n.note_date).toLocaleDateString()} \u2022 ${(n.author_email||'').split('@')[0]}</div>${(n.tags||[]).slice(0,3).map(t=>`<span style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:8px;margin-left:4px">${t}</span>`).join('')}</div><div style="font-size:11px;color:var(--text);line-height:1.4">${(n.body||'').replace(/</g,'&lt;').slice(0,200)}${n.body&&n.body.length>200?'\u2026':''}</div></div>`).join('') : '<div style="color:#a0a2b0;padding:20px;text-align:center">No notes this month yet. Click any day on the calendar to add one.</div>';
+}
+function acctNotesShiftMonth(delta) {
+  _acctNotesState.month += delta;
+  while (_acctNotesState.month < 0) { _acctNotesState.month += 12; _acctNotesState.year -= 1; }
+  while (_acctNotesState.month > 11) { _acctNotesState.month -= 12; _acctNotesState.year += 1; }
+  acctRenderNotesTab();
+}
+function acctOpenNoteEdit(noteId, presetDate) {
+  const note = noteId ? _acctNotesState.cache.find(x=>x.id===noteId) : { note_date: presetDate || new Date().toISOString().slice(0,10), body: '', tags: [] };
+  const old = document.getElementById('acctNoteModal'); if (old) old.remove();
+  const m = document.createElement('div');
+  m.id = 'acctNoteModal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px';
+  const tagsStr = (note.tags||[]).join(', ');
+  m.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;max-width:560px;width:100%;display:flex;flex-direction:column;overflow:hidden">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:800;color:var(--accent);font-family:'DM Mono',monospace;font-size:13px;text-transform:uppercase;letter-spacing:2px">${noteId?'Edit':'New'} Note</div>
+      <button onclick="document.getElementById('acctNoteModal').remove()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text);cursor:pointer;font-family:'DM Mono',monospace;font-size:11px">\u2715</button>
+    </div>
+    <div style="padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;flex-direction:column;gap:4px"><label style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#a0a2b0">Date</label><input id="noteDate" type="date" value="${note.note_date}" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px"></div>
+      <div style="display:flex;flex-direction:column;gap:4px"><label style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#a0a2b0">Note</label><textarea id="noteBody" rows="5" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px;resize:vertical">${(note.body||'').replace(/</g,'&lt;')}</textarea></div>
+      <div style="display:flex;flex-direction:column;gap:4px"><label style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#a0a2b0">Tags (comma-separated)</label><input id="noteTags" type="text" value="${tagsStr.replace(/"/g,'&quot;')}" placeholder="launch, restock, meeting" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px"></div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div>${noteId?`<button onclick="acctDeleteNote('${noteId}')" style="background:transparent;border:1px solid #ef4444;border-radius:8px;padding:7px 14px;color:#ef4444;cursor:pointer;font-family:'DM Mono',monospace;font-size:11px">Delete</button>`:''}</div>
+      <div style="display:flex;gap:8px"><button onclick="document.getElementById('acctNoteModal').remove()" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text);cursor:pointer;font-family:'DM Mono',monospace;font-size:11px">Cancel</button><button class="acct-save-btn" onclick="acctSaveNote(${noteId?`'${noteId}'`:'null'})">Save Note</button></div>
+    </div></div>`;
+  document.body.appendChild(m);
+}
+async function acctSaveNote(noteId) {
+  const sb = window.angoraSupabase; if (!sb) return;
+  const v = id => document.getElementById(id)?.value;
+  const body = v('noteBody'); if (!body || !body.trim()) return alert('Note body is required');
+  const tags = (v('noteTags')||'').split(',').map(t=>t.trim()).filter(Boolean);
+  const accountId = _acctCache.accountId;
+  const { data: { user } } = await sb.auth.getUser();
+  const payload = {
+    account_id: accountId,
+    author_email: user?.email || 'unknown',
+    body: body.trim(),
+    note_date: v('noteDate') || new Date().toISOString().slice(0,10),
+    tags,
+  };
+  let result;
+  if (noteId) result = await sb.from('angora_notes').update(payload).eq('id', noteId);
+  else result = await sb.from('angora_notes').insert([payload]);
+  if (result.error) return alert('Save failed: ' + result.error.message);
+  document.getElementById('acctNoteModal').remove();
+  acctRenderNotesTab();
+}
+async function acctDeleteNote(noteId) {
+  if (!confirm('Delete this note?')) return;
+  const sb = window.angoraSupabase; if (!sb) return;
+  const { error } = await sb.from('angora_notes').delete().eq('id', noteId);
+  if (error) return alert('Delete failed: ' + error.message);
+  document.getElementById('acctNoteModal').remove();
+  acctRenderNotesTab();
+}
+
 </script>
 
 <script src="js/auth.js"></script>
