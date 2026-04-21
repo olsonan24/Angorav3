@@ -17699,24 +17699,44 @@ function acctTimeAgo(ts) {
 }
 
 async function acctSyncMondayInventoryQuiet(products) {
-  // Same logic as the button-triggered sync but silent (no alerts)
+  // Same logic as the button-triggered sync but silent (no alerts).
+  // Pulls inventory from Master Inventory Viewer + COGS (cost+shipping) from Monthly Listing Reports.
   const sb = window.angoraSupabase;
   const { data: userRes } = await sb.auth.getUser();
   const userId = userRes && userRes.user ? userRes.user.id : null;
   const r = await fetch('/api/monday-inventory'); if (!r.ok) return;
   const data = await r.json(); if (!data.items) return;
   const byAsin = {};
-  data.items.forEach(it => { if (it.asin) byAsin[it.asin.toUpperCase()] = it; });
-  const upserts = [], history = [];
+  const byName = {};
+  data.items.forEach(it => {
+    if (it.asin) byAsin[it.asin.toUpperCase()] = it;
+    if (it.name) byName[it.name.trim().toLowerCase()] = it;
+  });
+  const upserts = [], history = [], productUpdates = [];
   products.forEach(p => {
-    const a = (p.asin || '').toUpperCase(); const it = byAsin[a]; if (!it) return;
+    const a = (p.asin || '').toUpperCase();
+    let it = a && byAsin[a];
+    if (!it && p.name) it = byName[(p.name || '').trim().toLowerCase()];
+    if (!it) return;
     upserts.push({ product_id: p.id, location: 'angora', quantity: it.angoraWh, updated_by: userId, notes: `Auto-synced from Monday (${it.mpl_id || 'no MPL'})` });
     history.push({ product_id: p.id, location: 'angora', quantity: it.angoraWh, source: 'monday', recorded_by: userId });
+    // Update COGS on product if available and changed
+    if (it.cogs_per_unit !== null && it.cogs_per_unit !== undefined) {
+      const cur = parseFloat(p.cogs || 0);
+      if (Math.abs(cur - it.cogs_per_unit) > 0.005) {
+        productUpdates.push({ id: p.id, unit_cost: it.cogs_per_unit });
+      }
+    }
   });
   if (upserts.length) {
     await sb.from('angora_inventory').upsert(upserts, { onConflict: 'product_id,location' });
     await sb.from('angora_inventory_history').insert(history);
-    // Re-render after quiet sync
+  }
+  // Update product unit_cost with latest landed COGS from Monday
+  for (const u of productUpdates) {
+    await sb.from('angora_products').update({ cogs: u.unit_cost }).eq('id', u.id);
+  }
+  if (upserts.length || productUpdates.length) {
     setTimeout(() => acctRenderInventoryTab(), 200);
   }
 }
@@ -17735,30 +17755,48 @@ async function acctSyncMondayInventory() {
     if (!data.items) throw new Error('No items returned');
     // Build ASIN → item lookup
     const byAsin = {};
-    data.items.forEach(it => { if (it.asin) byAsin[it.asin.toUpperCase()] = it; });
-    // Match our products by ASIN and build upserts
+    const byName = {};
+    data.items.forEach(it => {
+      if (it.asin) byAsin[it.asin.toUpperCase()] = it;
+      if (it.name) byName[it.name.trim().toLowerCase()] = it;
+    });
+    // Match our products by ASIN (or name fallback) and build upserts
     const sb = window.angoraSupabase;
     const { data: userRes } = await sb.auth.getUser();
     const userId = userRes && userRes.user ? userRes.user.id : null;
     const upserts = [];
     const historyInserts = [];
+    const productUpdates = [];
     const matched = [];
+    let cogsUpdated = 0;
     products.forEach(p => {
       const a = (p.asin || '').toUpperCase();
-      const it = byAsin[a];
+      let it = a && byAsin[a];
+      if (!it && p.name) it = byName[(p.name || '').trim().toLowerCase()];
       if (!it) return;
       matched.push(p.name || p.sku);
       upserts.push({ product_id: p.id, location: 'angora', quantity: it.angoraWh, updated_by: userId, notes: `Synced from Monday.com (${it.mpl_id || 'no MPL'})` });
       historyInserts.push({ product_id: p.id, location: 'angora', quantity: it.angoraWh, source: 'monday', recorded_by: userId });
+      if (it.cogs_per_unit !== null && it.cogs_per_unit !== undefined) {
+        const cur = parseFloat(p.cogs || 0);
+        if (Math.abs(cur - it.cogs_per_unit) > 0.005) {
+          productUpdates.push({ id: p.id, unit_cost: it.cogs_per_unit });
+          cogsUpdated++;
+        }
+      }
     });
     if (upserts.length === 0) {
-      alert(`Monday returned ${data.count} items, but none matched ASINs in your product list. Make sure your products have ASINs set.`);
+      alert(`Monday returned ${data.count} items (with ${data.with_cogs||0} COGS rows), but none matched ASINs or names in your product list.\n\nMake sure products have ASINs set or names match Monday exactly.`);
       return;
     }
     const { error: upErr } = await sb.from('angora_inventory').upsert(upserts, { onConflict: 'product_id,location' });
     if (upErr) throw upErr;
     await sb.from('angora_inventory_history').insert(historyInserts);
-    alert(`Synced ${upserts.length} product${upserts.length===1?'':'s'} from Monday:\n• ${matched.slice(0,8).join('\n• ')}${matched.length>8?'\n• …':''}`);
+    for (const u of productUpdates) {
+      await sb.from('angora_products').update({ cogs: u.unit_cost }).eq('id', u.id);
+    }
+    const cogsMsg = cogsUpdated > 0 ? `\n💰 Updated COGS on ${cogsUpdated} product${cogsUpdated===1?'':'s'} (cost + shipping from Monthly Listing Reports)` : '';
+    alert(`Synced ${upserts.length} product${upserts.length===1?'':'s'} from Monday:${cogsMsg}\n• ${matched.slice(0,8).join('\n• ')}${matched.length>8?'\n• …':''}`);
     acctRenderInventoryTab();
   } catch (e) {
     console.error('monday sync err', e);
@@ -18188,6 +18226,93 @@ async function acctPdfSaveRows() {
   acctRenderSalesTab();
 }
 
+// ── FBA FEE AUTO-CALC (Amazon 2025/2026 US FBA fulfillment fee schedule) ─────
+// Source: Amazon Seller Central FBA fee schedule effective Jan 15, 2025. Amazon
+// typically updates in mid-Jan — 2026 update (if different) should slot in here.
+// Returns the fulfillment fee per unit in USD, or null if dimensions/weight missing.
+// Tier logic: size tier first (small_std / large_std / large_bulky / extra_large),
+// then weight bucket within tier. Billable weight for large+ = max(actual, L*W*H/139).
+function acctFbaFeeAuto(p) {
+  const L = parseFloat(p.length_in || 0);
+  const W = parseFloat(p.width_in || 0);
+  const H = parseFloat(p.height_in || 0);
+  const wOz = parseFloat(p.weight_oz || 0);
+  if (!L || !W || !H || !wOz) return null;
+  const wLb = wOz / 16;
+  const dims = [L, W, H].sort((a, b) => b - a); // longest, median, shortest
+  const [longest, median, shortest] = dims;
+  const lenGirth = longest + 2 * (median + shortest);
+
+  // Size tier classification
+  let tier;
+  if (longest <= 15 && median <= 12 && shortest <= 0.75 && wOz <= 16) {
+    tier = 'small_std';
+  } else if (longest <= 18 && median <= 14 && shortest <= 8 && wLb <= 20) {
+    tier = 'large_std';
+  } else if (longest <= 59 && median <= 33 && shortest <= 33 && wLb <= 50 && lenGirth <= 130) {
+    tier = 'large_bulky';
+  } else if (longest <= 108 && lenGirth <= 165) {
+    // Extra-large tier (split by weight)
+    if (wLb <= 50) tier = 'xl_0_50';
+    else if (wLb <= 70) tier = 'xl_50_70';
+    else if (wLb <= 150) tier = 'xl_70_150';
+    else tier = 'xl_150_plus';
+  } else {
+    tier = 'xl_150_plus'; // catch-all
+  }
+
+  // Dimensional weight for large+ tiers
+  const dimWeight = (L * W * H) / 139;
+  const billableLb = ['large_std','large_bulky'].includes(tier) ? Math.max(wLb, dimWeight) : wLb;
+
+  if (tier === 'small_std') {
+    // shipping weight in oz
+    if (wOz <= 2) return 3.06;
+    if (wOz <= 4) return 3.15;
+    if (wOz <= 6) return 3.24;
+    if (wOz <= 8) return 3.33;
+    if (wOz <= 12) return 3.43;
+    return 3.72;  // 12-16 oz
+  }
+  if (tier === 'large_std') {
+    // Use billable (max of actual, dim weight) in pounds
+    const blOz = Math.max(wOz, Math.ceil(dimWeight * 16));
+    if (billableLb <= 0.25) return 3.87;        // ≤4 oz
+    if (billableLb <= 0.5) return 4.08;         // 4-8 oz
+    if (billableLb <= 0.75) return 4.24;        // 8-12 oz
+    if (billableLb <= 1) return 4.75;           // 12-16 oz
+    if (billableLb <= 1.5) return 5.40;
+    if (billableLb <= 2) return 5.69;
+    if (billableLb <= 2.5) return 6.10;
+    if (billableLb <= 3) return 6.39;
+    // 3+ lb: $6.92 + $0.16 per 4 oz above 3 lb
+    const extraQuarterLbs = Math.ceil((billableLb - 3) / 0.25);
+    return 6.92 + extraQuarterLbs * 0.16;
+  }
+  if (tier === 'large_bulky') {
+    if (wLb <= 5) return 9.61;
+    if (wLb <= 12) return 10.53 + (wLb > 5 ? (wLb - 5) * 0.38 : 0);
+    if (wLb <= 20) return 13.19 + (wLb - 12) * 0.39;
+    if (wLb <= 50) return 16.22 + (wLb - 20) * 0.40;
+    return 0; // shouldn't hit
+  }
+  if (tier === 'xl_0_50') return 26.33 + wLb * 0.38;
+  if (tier === 'xl_50_70') return 40.64 + (wLb - 51) * 0.75;
+  if (tier === 'xl_70_150') return 54.81 + (wLb - 71) * 0.75;
+  if (tier === 'xl_150_plus') return 194.95 + (wLb - 151) * 0.19;
+  return null;
+}
+
+// Helper: resolve effective FBA per-unit fee for a product.
+// Precedence: manual override > auto-calc from dims > 0 (with warning)
+function acctFbaPerUnit(p) {
+  const manual = parseFloat(p.fba_fee_manual || 0);
+  if (manual > 0) return { fee: manual, source: 'manual' };
+  const auto = acctFbaFeeAuto(p);
+  if (auto !== null && auto > 0) return { fee: auto, source: 'auto' };
+  return { fee: 0, source: 'none' };
+}
+
 // ── ECONOMICS TAB ─────────────────────────────────────────────────────────
 async function acctRenderEconomicsTab() {
   const brand = _acctActiveBrand;
@@ -18214,7 +18339,7 @@ async function acctRenderEconomicsTab() {
     const u = s.units_sold || 0; const r = parseFloat(s.revenue) || 0;
     g.units += u;
     const refPct = (g.product.referral_fee_pct || 15) / 100;
-    const fbaPerUnit = g.product.fba_fee_manual || 0;
+    const fbaPerUnit = acctFbaPerUnit(g.product).fee;
     const cogsPerUnit = g.product.cogs || 0;
     g.netRev += r;
     g.referral += r * refPct;
