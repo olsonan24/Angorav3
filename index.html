@@ -9,6 +9,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+<script type="module">
+  import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs';
+  window.pdfjsLib = pdfjsLib;
+</script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <style>
   :root {
@@ -17752,8 +17758,204 @@ async function acctAddManualSale() {
   acctRenderSalesTab();
 }
 
+// ── AMAZON PDF UPLOAD + PARSER ────────────────────────────────────────────
 async function acctUploadPdf() {
-  alert('PDF upload — coming in the next deploy (queued).');
+  const brand = _acctActiveBrand;
+  const accountId = await acctEnsureAccount(brand);
+  if (!accountId) return alert('Please sign in first.');
+  const products = _acctCache.products.length ? _acctCache.products : await acctLoadProducts(accountId);
+  _acctCache.products = products;
+  if (products.length === 0) return alert('Seed your products first — open Inventory tab.');
+
+  // File picker
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/pdf';
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    await acctParseAmazonPdf(file);
+  };
+  input.click();
+}
+
+async function acctParseAmazonPdf(file) {
+  if (!window.pdfjsLib) { alert('PDF library still loading. Try again in 2 seconds.'); return; }
+  // Upload PDF to supabase storage first, log entry
+  const sb = window.angoraSupabase;
+  const { data: userRes } = await sb.auth.getUser();
+  const userId = userRes && userRes.user ? userRes.user.id : null;
+  const path = `${_acctCache.accountId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9_.-]/g,'_')}`;
+  let uploadUrl = null;
+  try {
+    const { error: upErr } = await sb.storage.from('angora-pdfs').upload(path, file, { upsert: false });
+    if (!upErr) {
+      const { data: pub } = sb.storage.from('angora-pdfs').getPublicUrl(path);
+      uploadUrl = pub.publicUrl;
+    }
+  } catch(e) { console.warn('storage upload err', e); }
+  await sb.from('angora_pdf_uploads').insert({ account_id: _acctCache.accountId, uploaded_by: userId, file_name: file.name, file_path: uploadUrl || path, report_type: 'business_report', status: 'processing' }).then(()=>{}, ()=>{});
+
+  // Extract text via pdf.js
+  const arr = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: arr }).promise;
+  let allText = '';
+  const pageLines = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const tc = await page.getTextContent();
+    // Group text items by their Y coordinate to reconstruct rows
+    const byY = {};
+    tc.items.forEach(it => {
+      const y = Math.round((it.transform ? it.transform[5] : 0) * 10) / 10;
+      if (!byY[y]) byY[y] = [];
+      byY[y].push({ x: it.transform ? it.transform[4] : 0, str: it.str });
+    });
+    const lines = Object.keys(byY).sort((a,b) => parseFloat(b) - parseFloat(a)).map(y => {
+      return byY[y].sort((a,b) => a.x - b.x).map(i => i.str).join(' \t ');
+    });
+    pageLines.push(...lines);
+    allText += lines.join('\n') + '\n\n';
+  }
+
+  // Parse rows: look for lines with an ASIN or SKU + numbers
+  const asinRe = /\bB0[A-Z0-9]{8}\b/;
+  const moneyRe = /\$?[\d,]+\.?\d*/g;
+  const candidateRows = [];
+  pageLines.forEach(line => {
+    const m = line.match(asinRe);
+    if (!m) return;
+    const asin = m[0];
+    // Extract numbers (units + revenue). Typical Amazon Business Report row:
+    // Title  |  SKU  |  (Parent) ASIN  |  Child ASIN  |  Sessions  |  Page Views  |  Buy Box %  |  Units Ordered  |  Ordered Product Sales  |  Total Order Items
+    const nums = [...line.matchAll(moneyRe)].map(m => parseFloat(m[0].replace(/[$,]/g,''))).filter(n => !isNaN(n));
+    candidateRows.push({ line, asin, numbers: nums });
+  });
+
+  // Try to detect date range from text
+  let reportDate = new Date().toISOString().slice(0,10);
+  const dateMatch = allText.match(/(\w+ \d{1,2},? \d{4})\s*[-–to]+\s*(\w+ \d{1,2},? \d{4})/i)
+                   || allText.match(/(\d{4}-\d{2}-\d{2})\s*[-–to]+\s*(\d{4}-\d{2}-\d{2})/);
+  if (dateMatch) {
+    try { reportDate = new Date(dateMatch[2]).toISOString().slice(0,10); } catch(e){}
+  }
+
+  // Match candidates to our products by ASIN
+  const asinToProduct = {};
+  _acctCache.products.forEach(p => { if (p.asin) asinToProduct[p.asin.toUpperCase()] = p; });
+  const rows = candidateRows.map(c => {
+    const prod = asinToProduct[c.asin.toUpperCase()];
+    // Heuristic: last revenue-shaped number with a dot or thousands = revenue;
+    // an integer = units ordered. Pick the two most likely.
+    const ints = c.numbers.filter(n => Number.isInteger(n) && n < 100000);
+    const dollars = c.numbers.filter(n => !Number.isInteger(n) || n >= 100);
+    return {
+      asin: c.asin,
+      productId: prod ? prod.id : null,
+      productName: prod ? (prod.name || prod.sku) : '(not in account)',
+      date: reportDate,
+      units: ints.length > 0 ? ints[ints.length - 1] : 0,
+      revenue: dollars.length > 0 ? dollars[dollars.length - 1] : 0,
+      rawLine: c.line.slice(0, 180),
+    };
+  });
+
+  acctOpenPdfPreview(rows, file.name, allText);
+}
+
+function acctOpenPdfPreview(rows, filename, rawText) {
+  // Build modal
+  const old = document.getElementById('acctPdfModal'); if (old) old.remove();
+  const modal = document.createElement('div');
+  modal.id = 'acctPdfModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;max-width:1100px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-weight:800;color:var(--accent);font-family:'DM Mono',monospace;font-size:13px;text-transform:uppercase;letter-spacing:2px">Amazon PDF \u2014 Preview Rows</div>
+          <div style="font-size:10px;color:#a0a2b0;margin-top:3px;font-family:'DM Mono',monospace">${filename} \u00b7 ${rows.length} row${rows.length===1?'':'s'} detected \u00b7 Edit if needed, then Save</div>
+        </div>
+        <button onclick="document.getElementById('acctPdfModal').remove()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text);cursor:pointer;font-family:'DM Mono',monospace;font-size:11px">\u2715 Close</button>
+      </div>
+      <div style="padding:16px 22px;overflow-y:auto;flex:1">
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;font-family:'DM Mono',monospace;font-size:11px;color:#e8e9f0">
+          <label>Date for all rows:</label>
+          <input id="acctPdfDate" type="date" value="${rows[0] ? rows[0].date : new Date().toISOString().slice(0,10)}" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:6px 9px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px">
+          <button onclick="acctPdfApplyDate()" class="acct-save-btn" style="margin-left:0">Apply to all</button>
+          <span style="margin-left:auto;font-size:10px;color:#a0a2b0">Only rows with a matched product will be saved.</span>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="acct-data-table" style="width:100%">
+            <thead><tr>
+              <th style="width:30px"><input type="checkbox" id="acctPdfAll" checked onchange="acctPdfToggleAll(this.checked)"></th>
+              <th>ASIN</th><th>Product</th><th>Date</th>
+              <th style="text-align:right">Units</th>
+              <th style="text-align:right">Revenue</th>
+              <th style="font-size:8px;color:#a0a2b0">Raw line (for debug)</th>
+            </tr></thead>
+            <tbody id="acctPdfBody">
+              ${rows.map((r,i) => `
+                <tr data-row="${i}" style="${!r.productId ? 'opacity:0.4' : ''}">
+                  <td><input type="checkbox" class="acctPdfRow" ${r.productId ? 'checked':''} ${!r.productId?'disabled':''}></td>
+                  <td style="font-family:'DM Mono',monospace;font-size:10px">${r.asin}</td>
+                  <td>${(r.productName||'').replace(/</g,'&lt;').slice(0,30)}</td>
+                  <td><input type="date" value="${r.date}" class="acctPdfDate" style="width:125px"></td>
+                  <td style="text-align:right"><input type="number" value="${r.units}" class="acctPdfUnits" style="text-align:right;width:70px"></td>
+                  <td style="text-align:right"><input type="number" step="0.01" value="${r.revenue.toFixed(2)}" class="acctPdfRev" style="text-align:right;width:90px"></td>
+                  <td style="font-family:'DM Mono',monospace;font-size:9px;color:#a0a2b0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(r.rawLine||'').replace(/</g,'&lt;')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${rows.length === 0 ? '<div style="padding:30px;text-align:center;color:#a0a2b0;font-family:\\'DM Mono\\',monospace"><div style="font-size:13px;margin-bottom:10px">No rows detected automatically</div><div style="font-size:10px">The PDF format may not match the standard Amazon Business Report. Paste sales data manually below.</div></div>' : ''}
+        <details style="margin-top:14px;color:#a0a2b0;font-family:'DM Mono',monospace;font-size:10px">
+          <summary style="cursor:pointer">\u25b8 View raw PDF text (for debugging/manual entry)</summary>
+          <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;max-height:300px;overflow:auto;font-size:9px;white-space:pre-wrap">${(rawText||'').slice(0,8000).replace(/</g,'&lt;')}</pre>
+        </details>
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px">
+        <button onclick="document.getElementById('acctPdfModal').remove()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text);cursor:pointer;font-family:'DM Mono',monospace;font-size:11px">Cancel</button>
+        <button onclick="acctPdfSaveRows()" class="acct-save-btn">\u2713 Save Matched Rows to Daily Sales</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  // Stash rows reference on the modal
+  window._acctPdfRows = rows;
+}
+
+function acctPdfApplyDate() {
+  const d = document.getElementById('acctPdfDate').value;
+  document.querySelectorAll('.acctPdfDate').forEach(i => { i.value = d; });
+}
+
+function acctPdfToggleAll(checked) {
+  document.querySelectorAll('.acctPdfRow').forEach(cb => { if (!cb.disabled) cb.checked = checked; });
+}
+
+async function acctPdfSaveRows() {
+  const rows = window._acctPdfRows || [];
+  const sb = window.angoraSupabase;
+  const bodyRows = document.querySelectorAll('#acctPdfBody tr');
+  const inserts = [];
+  bodyRows.forEach((tr) => {
+    const i = parseInt(tr.dataset.row);
+    const r = rows[i]; if (!r || !r.productId) return;
+    const cb = tr.querySelector('.acctPdfRow'); if (!cb.checked) return;
+    const date = tr.querySelector('.acctPdfDate').value;
+    const units = parseInt(tr.querySelector('.acctPdfUnits').value) || 0;
+    const revenue = parseFloat(tr.querySelector('.acctPdfRev').value) || 0;
+    if (units === 0 && revenue === 0) return;
+    inserts.push({ product_id: r.productId, sale_date: date, units_sold: units, revenue, source: 'amazon' });
+  });
+  if (inserts.length === 0) { alert('No rows selected / no units > 0.'); return; }
+  const { error } = await sb.from('angora_daily_sales').upsert(inserts, { onConflict: 'product_id,sale_date' });
+  if (error) return alert('Save failed: ' + error.message);
+  document.getElementById('acctPdfModal').remove();
+  alert(`Saved ${inserts.length} sales row${inserts.length===1?'':'s'} from PDF.`);
+  acctRenderSalesTab();
 }
 
 // ── ECONOMICS TAB ─────────────────────────────────────────────────────────
