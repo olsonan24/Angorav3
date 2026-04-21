@@ -17,7 +17,7 @@
     --border: #1e1e28;
     --accent: #6b8fff;
     --text: #ffffff;
-    --muted: #52526a;
+    --muted: #e8e9f0;
     --negate: #ff4d6d;
     --increase: #4dffb4;
     --decrease: #ffd166;
@@ -38,6 +38,33 @@
     --decrease: #b45309;
     --exact: #2563eb;
   }
+  /* ── Readability: make hardcoded grays bright in dark mode ───────────── */
+  :root:not(.light) [style*="color:#888"]:not([style*="background"]) { color: #e8e9f0 !important; }
+  :root:not(.light) [style*="color: #888"]:not([style*="background"]) { color: #e8e9f0 !important; }
+  :root:not(.light) [style*="color:#666"] { color: #d5d6de !important; }
+  :root:not(.light) [style*="color: #666"] { color: #d5d6de !important; }
+  :root:not(.light) [style*="color:#94a3b8"] { color: #e8e9f0 !important; }
+  :root:not(.light) [style*="color: #94a3b8"] { color: #e8e9f0 !important; }
+  :root:not(.light) [style*="color:#8890a8"] { color: #e8e9f0 !important; }
+  :root:not(.light) [style*="color: #8890a8"] { color: #e8e9f0 !important; }
+  :root:not(.light) [style*="color:#9ca3af"] { color: #e8e9f0 !important; }
+  :root:not(.light) [style*="color: #9ca3af"] { color: #e8e9f0 !important; }
+  :root:not(.light) [style*="color:#64748b"] { color: #e8e9f0 !important; }
+  :root:not(.light) [style*="color: #64748b"] { color: #e8e9f0 !important; }
+  :root:not(.light) [style*="color:#6b7280"] { color: #e8e9f0 !important; }
+  :root:not(.light) [style*="color: #6b7280"] { color: #e8e9f0 !important; }
+  /* Boost faded labels (opacity:0.7 with muted color) to fully legible */
+  :root:not(.light) [style*="opacity:0.7"][style*="var(--muted)"] { opacity: 0.95 !important; }
+  :root:not(.light) [style*="opacity:0.45"][style*="var(--muted)"] { opacity: 0.9 !important; }
+  :root:not(.light) [style*="opacity:0.5"][style*="var(--muted)"] { opacity: 0.9 !important; }
+  :root:not(.light) [style*="opacity:0.6"][style*="var(--muted)"] { opacity: 0.9 !important; }
+  /* Table headers were #8890a8 on light — bump those grey `th` rules too */
+  :root:not(.light) th:hover { color: #ffffff !important; }
+  /* Input placeholder text also needs to be visible (not full white though) */
+  :root:not(.light) input::placeholder,
+  :root:not(.light) textarea::placeholder { color: #a0a2b0 !important; opacity: 0.75 !important; }
+  :root:not(.light) .search-input::placeholder { color: #a0a2b0 !important; }
+
   :root.light body { background: var(--bg); }
   :root.light .glow-orb { opacity: 0.12; }
   :root.light .grain { opacity: 0.15; }
