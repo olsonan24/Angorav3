@@ -18487,7 +18487,13 @@ async function acctPdfSaveRows() {
   const rows = window._acctPdfRows || [];
   const sb = window.angoraSupabase;
   const bodyRows = document.querySelectorAll('#acctPdfBody tr');
-  const inserts = [];
+  // Aggregate by (product_id, sale_date) so duplicate ASIN lines in the same
+  // report sum together instead of fighting each other in the upsert. Amazon
+  // business reports often have multiple rows per ASIN (per child SKU, per
+  // marketplace variant, etc.) and Postgres rejects an upsert that tries to
+  // affect the same conflict target twice in one statement.
+  const agg = {};
+  let rawSelected = 0, merged = 0;
   bodyRows.forEach((tr) => {
     const i = parseInt(tr.dataset.row);
     const r = rows[i]; if (!r || !r.productId) return;
@@ -18496,13 +18502,25 @@ async function acctPdfSaveRows() {
     const units = parseInt(tr.querySelector('.acctPdfUnits').value) || 0;
     const revenue = parseFloat(tr.querySelector('.acctPdfRev').value) || 0;
     if (units === 0 && revenue === 0) return;
-    inserts.push({ product_id: r.productId, sale_date: date, units_sold: units, revenue, source: 'amazon_pdf' });
+    rawSelected++;
+    const key = `${r.productId}|${date}`;
+    if (agg[key]) {
+      agg[key].units_sold += units;
+      agg[key].revenue += revenue;
+      merged++;
+    } else {
+      agg[key] = { product_id: r.productId, sale_date: date, units_sold: units, revenue, source: 'amazon_pdf' };
+    }
   });
+  const inserts = Object.values(agg);
   if (inserts.length === 0) { alert('No rows selected / no units > 0.'); return; }
+  // Round revenue to 2 decimals (numeric(12,2))
+  inserts.forEach(row => { row.revenue = Math.round(row.revenue * 100) / 100; });
   const { error } = await sb.from('angora_daily_sales').upsert(inserts, { onConflict: 'product_id,sale_date' });
   if (error) return alert('Save failed: ' + error.message);
   document.getElementById('acctPdfModal').remove();
-  alert(`Saved ${inserts.length} sales row${inserts.length===1?'':'s'} from PDF.`);
+  const note = merged > 0 ? ` (merged ${merged} duplicate ASIN line${merged===1?'':'s'} into existing rows)` : '';
+  alert(`Saved ${inserts.length} sales row${inserts.length===1?'':'s'} from report.${note}`);
   acctRenderSalesTab();
 }
 
