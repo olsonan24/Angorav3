@@ -17632,7 +17632,7 @@ async function acctRenderInventoryTab() {
     if (spike) spikeCount++;
     const status = spike ? '<span class="acct-pill-warn">Spike</span>' : (runwayNum < 2 ? '<span class="acct-pill-danger">Out soon</span>' : (runwayNum < 4 ? '<span class="acct-pill-warn">Low</span>' : '<span class="acct-pill-ok">OK</span>'));
     return `<tr class="${rowClass}">
-      <td style="font-weight:700">${p.sku || '—'}</td>
+      <td style="font-weight:700"><a href="#" onclick="event.preventDefault();acctOpenProductEdit('${p.id}')" style="color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent)">${p.sku || '—'}</a></td>
       <td>${(p.name||'').replace(/</g,'&lt;').slice(0,40)}</td>
       <td style="text-align:right"><input type="number" min="0" value="${lo.fba}" data-pid="${p.id}" data-loc="fba" oninput="acctInvCellChange(this)"></td>
       <td style="text-align:right"><input type="number" min="0" value="${lo.awd}" data-pid="${p.id}" data-loc="awd" oninput="acctInvCellChange(this)"></td>
@@ -17672,6 +17672,109 @@ function acctInvCellChange(input) {
   _acctCache.invDirty.set(key, { product_id: pid, location: loc, quantity: parseInt(input.value) || 0 });
   const btn = document.getElementById('acctInvSaveBtn');
   if (btn) btn.disabled = false;
+}
+
+// ── PRODUCT EDIT MODAL (economics + dims) ──────────────────────────────────
+function acctOpenProductEdit(productId) {
+  const p = (_acctCache.products || []).find(x => x.id === productId);
+  if (!p) return alert('Product not found');
+  const old = document.getElementById('acctProdModal'); if (old) old.remove();
+  const modal = document.createElement('div');
+  modal.id = 'acctProdModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px';
+  const fld = (id, label, value, type='text', attrs='', hint='') => `
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <label style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#a0a2b0">${label}</label>
+      <input id="${id}" type="${type}" value="${value === null || value === undefined ? '' : value}" ${attrs}
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px">
+      ${hint ? `<div style="font-size:9px;color:#a0a2b0;font-family:'DM Mono',monospace">${hint}</div>` : ''}
+    </div>`;
+  modal.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;max-width:720px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-weight:800;color:var(--accent);font-family:'DM Mono',monospace;font-size:13px;text-transform:uppercase;letter-spacing:2px">Edit Product</div>
+          <div style="font-size:10px;color:#a0a2b0;margin-top:3px;font-family:'DM Mono',monospace">${(p.name||p.sku||'').replace(/</g,'&lt;')}</div>
+        </div>
+        <button onclick="document.getElementById('acctProdModal').remove()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text);cursor:pointer;font-family:'DM Mono',monospace;font-size:11px">\u2715 Close</button>
+      </div>
+      <div style="padding:18px 22px;overflow-y:auto;flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        ${fld('prodName','Product Name', (p.name||'').replace(/"/g,'&quot;'))}
+        ${fld('prodSku','SKU', (p.sku||''))}
+        ${fld('prodAsin','ASIN', (p.asin||''), 'text', 'maxlength="10" style="text-transform:uppercase"')}
+        ${fld('prodCategory','Category', (p.category||''))}
+        <div style="grid-column:1/-1;height:1px;background:var(--border);margin:4px 0"></div>
+        <div style="grid-column:1/-1;font-family:\\'DM Mono\\',monospace;font-size:9px;text-transform:uppercase;letter-spacing:2px;color:var(--accent);margin-bottom:-6px">Economics</div>
+        ${fld('prodCogs','COGS (landed, $/unit)', p.cogs || 0, 'number', 'step="0.01" min="0"', 'Cost + shipping. Auto-filled from Monday if present.')}
+        ${fld('prodPrice','Sell Price ($)', p.price || 0, 'number', 'step="0.01" min="0"')}
+        ${fld('prodRef','Referral Fee %', p.referral_fee_pct ?? 15, 'number', 'step="0.1" min="0" max="45"', 'Amazon category referral (default 15%)')}
+        ${fld('prodFba','FBA Fee Override ($)', p.fba_fee_manual ?? '', 'number', 'step="0.01" min="0"', 'Leave blank to auto-calc from dims+weight.')}
+        <div style="grid-column:1/-1;height:1px;background:var(--border);margin:4px 0"></div>
+        <div style="grid-column:1/-1;font-family:\\'DM Mono\\',monospace;font-size:9px;text-transform:uppercase;letter-spacing:2px;color:var(--accent);margin-bottom:-6px">Dimensions & Weight (for auto-FBA)</div>
+        ${fld('prodWeight','Weight (oz)', p.weight_oz ?? '', 'number', 'step="0.01" min="0"')}
+        ${fld('prodLen','Length (in)', p.length_in ?? '', 'number', 'step="0.01" min="0"')}
+        ${fld('prodWid','Width (in)', p.width_in ?? '', 'number', 'step="0.01" min="0"')}
+        ${fld('prodHgt','Height (in)', p.height_in ?? '', 'number', 'step="0.01" min="0"')}
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div id="prodSaveMsg" style="font-family:'DM Mono',monospace;font-size:10px;color:#a0a2b0"></div>
+        <div style="display:flex;gap:8px">
+          <button onclick="document.getElementById('acctProdModal').remove()" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text);cursor:pointer;font-family:'DM Mono',monospace;font-size:11px">Cancel</button>
+          <button class="acct-save-btn" onclick="acctSaveProductEdit('${p.id}')">Save Product</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function acctSaveProductEdit(productId) {
+  const sb = window.angoraSupabase; if (!sb) return;
+  const v = id => document.getElementById(id)?.value;
+  const numOrNull = s => { const n = parseFloat(s); return isNaN(n) ? null : n; };
+  const payload = {
+    name:    v('prodName') || null,
+    sku:     v('prodSku') || null,
+    asin:    (v('prodAsin') || '').toUpperCase() || null,
+    category: v('prodCategory') || null,
+    cogs:    numOrNull(v('prodCogs')),
+    price:   numOrNull(v('prodPrice')),
+    referral_fee_pct: numOrNull(v('prodRef')),
+    fba_fee_manual:   numOrNull(v('prodFba')),
+    weight_oz: numOrNull(v('prodWeight')),
+    length_in: numOrNull(v('prodLen')),
+    width_in:  numOrNull(v('prodWid')),
+    height_in: numOrNull(v('prodHgt')),
+    updated_at: new Date().toISOString(),
+  };
+  const msg = document.getElementById('prodSaveMsg');
+  if (msg) msg.textContent = 'Saving\u2026';
+  const { error } = await sb.from('angora_products').update(payload).eq('id', productId);
+  if (error) {
+    // Graceful fallback if fba_fee_manual/referral_fee_pct columns not yet created
+    if (/fba_fee_manual|referral_fee_pct/.test(String(error.message||''))) {
+      delete payload.fba_fee_manual; delete payload.referral_fee_pct;
+      const r2 = await sb.from('angora_products').update(payload).eq('id', productId);
+      if (!r2.error) {
+        if (msg) msg.textContent = 'Saved (fba_fee_manual / referral_fee_pct columns not yet added \u2014 skipped). Run the pending ALTER TABLE SQL to enable.';
+      } else {
+        if (msg) msg.textContent = 'Error: ' + r2.error.message;
+        return;
+      }
+    } else {
+      if (msg) msg.textContent = 'Error: ' + error.message;
+      return;
+    }
+  } else {
+    if (msg) msg.textContent = 'Saved \u2714';
+  }
+  // Update local cache so re-renders show new data
+  const p = (_acctCache.products || []).find(x => x.id === productId);
+  if (p) Object.assign(p, payload);
+  setTimeout(() => {
+    const m = document.getElementById('acctProdModal'); if (m) m.remove();
+    acctRenderInventoryTab();
+    if (typeof acctRenderEconomicsTab === 'function') acctRenderEconomicsTab();
+  }, 700);
 }
 
 async function acctSaveInventory() {
