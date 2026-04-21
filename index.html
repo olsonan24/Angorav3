@@ -97,7 +97,7 @@
   .acct-empty { text-align:center; padding:40px 20px; color:#a0a2b0; font-family:'DM Mono',monospace; font-size:11px; }
   .acct-empty-action { display:inline-block; margin-top:12px; background:rgba(107,143,255,0.12); border:1px solid rgba(107,143,255,0.35); border-radius:8px; color:var(--accent); padding:8px 16px; font-size:10px; cursor:pointer; text-transform:uppercase; letter-spacing:1px; font-weight:600; }
   .acct-empty-action:hover { background:rgba(107,143,255,0.22); }
-  .acct-chart-wrap { position:relative; height:260px; margin-top:8px; }
+  .acct-chart-wrap { position:relative; height:340px; margin-top:14px; padding:14px 4px 4px; background:linear-gradient(180deg,rgba(107,143,255,0.03),transparent); border-radius:12px; }
   .acct-filter-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
   .acct-filter-row select, .acct-filter-row input { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:7px 10px; color:#e8e9f0; font-family:'DM Mono',monospace; font-size:10px; outline:none; }
   .acct-save-btn { background:rgba(107,143,255,0.12); border:1px solid rgba(107,143,255,0.35); border-radius:8px; color:var(--accent); font-family:'DM Mono',monospace; font-size:10px; padding:7px 16px; cursor:pointer; letter-spacing:1px; font-weight:600; text-transform:uppercase; }
@@ -17299,6 +17299,19 @@ window.calDeleteAudit = async function() {
               <option value="units" selected>Units sold</option>
               <option value="revenue">Revenue ($)</option>
             </select>
+            <label style="font-size:9px;color:#a0a2b0;text-transform:uppercase;letter-spacing:1px">Group:</label>
+            <select id="acctSalesGrouping" onchange="acctRenderSalesTab()">
+              <option value="day">Daily</option>
+              <option value="week" selected>Weekly</option>
+              <option value="month">Monthly</option>
+              <option value="year">Yearly</option>
+            </select>
+            <label style="font-size:9px;color:#a0a2b0;text-transform:uppercase;letter-spacing:1px">Chart:</label>
+            <select id="acctSalesChartType" onchange="acctRenderSalesTab()">
+              <option value="bar" selected>Bars</option>
+              <option value="line">Line</option>
+              <option value="area">Area</option>
+            </select>
             <button class="acct-save-btn" onclick="acctAddManualSale()" style="margin-left:auto">+ Manual Entry</button>
             <button class="acct-save-btn" onclick="acctUploadPdf()">\u2b06 Upload Amazon PDF</button>
           </div>
@@ -17780,6 +17793,8 @@ async function acctRenderSalesTab() {
 
   const range = parseInt(rangeSel.value) || 90;
   const metric = metricSel.value || 'units';
+  const grouping = document.getElementById('acctSalesGrouping')?.value || 'week';
+  const chartType = document.getElementById('acctSalesChartType')?.value || 'bar';
   const productIds = products.map(p => p.id);
   const sales = await acctLoadDailySales(productIds, range);
   _acctCache.dailySales = sales;
@@ -17795,51 +17810,149 @@ async function acctRenderSalesTab() {
 
   const filteredSales = (skuSel.value === '__all__') ? sales : sales.filter(s => s.product_id === skuSel.value);
 
-  // Bucket by date
-  const byDate = {};
+  // Bucket by chosen grouping
+  function bucketKey(dateStr, grp) {
+    const d = new Date(dateStr + 'T00:00:00');
+    if (grp === 'day') return dateStr;
+    if (grp === 'year') return String(d.getFullYear());
+    if (grp === 'month') return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+    if (grp === 'week') {
+      // ISO week = Monday-based
+      const tmp = new Date(d.valueOf());
+      const day = (tmp.getDay() + 6) % 7; // Mon=0
+      tmp.setDate(tmp.getDate() - day);
+      return tmp.toISOString().slice(0,10);
+    }
+    return dateStr;
+  }
+  function bucketLabel(key, grp) {
+    if (grp === 'day')   return new Date(key+'T00:00:00').toLocaleDateString([], { month:'short', day:'numeric' });
+    if (grp === 'week')  return 'Wk of ' + new Date(key+'T00:00:00').toLocaleDateString([], { month:'short', day:'numeric' });
+    if (grp === 'month') { const [y,m] = key.split('-'); return new Date(+y,+m-1,1).toLocaleDateString([], { month:'short', year:'2-digit' }); }
+    if (grp === 'year')  return key;
+    return key;
+  }
+
+  const byBucket = {};
   filteredSales.forEach(s => {
-    if (!byDate[s.sale_date]) byDate[s.sale_date] = { units: 0, revenue: 0 };
-    byDate[s.sale_date].units += (s.units_sold || 0);
-    byDate[s.sale_date].revenue += parseFloat(s.revenue || 0);
+    const k = bucketKey(s.sale_date, grouping);
+    if (!byBucket[k]) byBucket[k] = { units: 0, revenue: 0, ads: 0, days: new Set(), dateKey: k };
+    byBucket[k].units   += (s.units_sold || 0);
+    byBucket[k].revenue += parseFloat(s.revenue || 0);
+    byBucket[k].ads     += parseFloat(s.ad_spend || 0);
+    byBucket[k].days.add(s.sale_date);
   });
-  const labels = Object.keys(byDate).sort();
-  const values = labels.map(l => metric === 'revenue' ? byDate[l].revenue : byDate[l].units);
+  const sortedKeys = Object.keys(byBucket).sort();
+  const labels = sortedKeys.map(k => bucketLabel(k, grouping));
+  const values = sortedKeys.map(k => metric === 'revenue' ? byBucket[k].revenue : byBucket[k].units);
 
   const totalUnits = filteredSales.reduce((a,s) => a+(s.units_sold||0), 0);
   const totalRev = filteredSales.reduce((a,s) => a+parseFloat(s.revenue||0), 0);
   const totalAds = filteredSales.reduce((a,s) => a+parseFloat(s.ad_spend||0), 0);
-  const avgDay = values.length ? values.reduce((a,b)=>a+b,0)/values.length : 0;
+  const nBuckets = sortedKeys.length || 1;
+  const avgBucket = values.length ? values.reduce((a,b)=>a+b,0)/values.length : 0;
+  const perBucketLabel = { day: 'Day', week: 'Week', month: 'Month', year: 'Year' }[grouping];
   stats.innerHTML = `
     <div class="acct-stat-card"><div class="acct-stat-label">Units Sold</div><div class="acct-stat-value">${totalUnits.toLocaleString()}</div></div>
     <div class="acct-stat-card"><div class="acct-stat-label">Revenue</div><div class="acct-stat-value">$${Math.round(totalRev).toLocaleString()}</div></div>
     <div class="acct-stat-card"><div class="acct-stat-label">Ad Spend</div><div class="acct-stat-value">$${Math.round(totalAds).toLocaleString()}</div></div>
-    <div class="acct-stat-card"><div class="acct-stat-label">Avg/Day</div><div class="acct-stat-value">${metric === 'revenue' ? '$'+Math.round(avgDay).toLocaleString() : avgDay.toFixed(1)}</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Avg/${perBucketLabel}</div><div class="acct-stat-value">${metric === 'revenue' ? '$'+Math.round(avgBucket).toLocaleString() : avgBucket.toFixed(1)}</div></div>
   `;
 
   const canvas = document.getElementById('acctSalesChart');
   if (_acctCache.salesChart) { try { _acctCache.salesChart.destroy(); } catch(e){} }
+
+  // Gradient fill
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createLinearGradient(0, 0, 0, 340);
+  gradient.addColorStop(0, 'rgba(107,143,255,0.55)');
+  gradient.addColorStop(1, 'rgba(107,143,255,0.02)');
+
+  const barColor = (c) => {
+    const i = c.dataIndex; const v = c.dataset.data[i] || 0; const max = Math.max(...c.dataset.data);
+    const t = max > 0 ? v / max : 0;
+    // Interpolate between accent blue and cyan for "hotter" bars
+    const r = Math.round(107 + (77 - 107) * t);
+    const g = Math.round(143 + (255 - 143) * t);
+    const b = Math.round(255 + (180 - 255) * t);
+    return `rgba(${r},${g},${b},0.88)`;
+  };
+
+  const isBar  = chartType === 'bar';
+  const isArea = chartType === 'area';
+  const isLine = chartType === 'line';
+
+  const dsBase = {
+    label: metric === 'revenue' ? 'Revenue' : 'Units Sold',
+    data: values,
+  };
+
+  const dsBar = { ...dsBase, backgroundColor: (c) => barColor(c), borderRadius: 8, borderSkipped: false, hoverBackgroundColor: '#8faaff', maxBarThickness: 60 };
+  const dsLine = { ...dsBase, borderColor: '#6b8fff', backgroundColor: 'rgba(107,143,255,0.08)', fill: false, tension: 0.32, pointRadius: 3, pointHoverRadius: 7, pointBackgroundColor: '#6b8fff', pointBorderColor: '#fff', pointBorderWidth: 2, borderWidth: 2.5 };
+  const dsArea = { ...dsLine, fill: true, backgroundColor: gradient };
+
+  const dataset = isBar ? dsBar : (isArea ? dsArea : dsLine);
+
   _acctCache.salesChart = new Chart(canvas, {
-    type: 'line',
-    data: { labels, datasets: [{
-      label: metric === 'revenue' ? 'Revenue ($)' : 'Units Sold',
-      data: values,
-      borderColor: '#6b8fff',
-      backgroundColor: 'rgba(107,143,255,0.14)',
-      fill: true,
-      tension: 0.28,
-      pointRadius: 2,
-      pointHoverRadius: 5,
-      borderWidth: 2,
-    }]},
+    type: isBar ? 'bar' : 'line',
+    data: { labels, datasets: [dataset] },
     options: {
       responsive: true, maintainAspectRatio: false,
+      animation: {
+        duration: 900,
+        easing: 'easeOutQuart',
+        delay: (ctx) => (ctx.type === 'data' && ctx.mode === 'default') ? ctx.dataIndex * 40 : 0,
+      },
+      interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
-        tooltip: { backgroundColor: '#0e0e12', titleColor: '#e8e9f0', bodyColor: '#e8e9f0', borderColor: '#6b8fff', borderWidth: 1, padding: 10, displayColors: false, callbacks: { label: ctx => metric === 'revenue' ? '$' + ctx.parsed.y.toFixed(2) : ctx.parsed.y + ' units' } },
+        tooltip: {
+          backgroundColor: 'rgba(14,14,18,0.97)',
+          titleColor: '#6b8fff',
+          bodyColor: '#e8e9f0',
+          borderColor: 'rgba(107,143,255,0.4)',
+          borderWidth: 1,
+          padding: 14,
+          displayColors: false,
+          titleFont: { family: 'DM Mono', size: 11, weight: 'bold' },
+          bodyFont: { family: 'DM Mono', size: 11 },
+          cornerRadius: 10,
+          caretSize: 6,
+          callbacks: {
+            title: (items) => {
+              const k = sortedKeys[items[0].dataIndex];
+              return bucketLabel(k, grouping);
+            },
+            label: (ctx) => {
+              const k = sortedKeys[ctx.dataIndex];
+              const b = byBucket[k];
+              const lines = [
+                `\ud83d\udce6 ${b.units.toLocaleString()} units sold`,
+                `\ud83d\udcb0 $${b.revenue.toFixed(2)} revenue`,
+              ];
+              if (b.ads > 0) lines.push(`\ud83d\udcca $${b.ads.toFixed(2)} ad spend`);
+              const dayCnt = b.days.size;
+              if (dayCnt > 1) lines.push(`${dayCnt} active days \u00b7 ${(b.units/dayCnt).toFixed(1)}/day avg`);
+              return lines;
+            },
+          },
+        },
       },
       scales: {
-        x: { ticks: { color: '#a0a2b0', font: { family: 'DM Mono', size: 9 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
-        y: { ticks: { color: '#a0a2b0', font: { family: 'DM Mono', size: 9 } }, grid: { color: 'rgba(255,255,255,0.06)' }, beginAtZero: true },
+        x: {
+          ticks: { color: '#a0a2b0', font: { family: 'DM Mono', size: 9 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 14 },
+          grid: { display: false },
+          border: { color: 'rgba(255,255,255,0.1)' },
+        },
+        y: {
+          ticks: {
+            color: '#a0a2b0',
+            font: { family: 'DM Mono', size: 9 },
+            callback: v => metric === 'revenue' ? '$'+(v >= 1000 ? (v/1000).toFixed(1)+'k' : v) : v.toLocaleString(),
+          },
+          grid: { color: 'rgba(255,255,255,0.05)', drawBorder: false },
+          beginAtZero: true,
+        },
       },
     },
   });
