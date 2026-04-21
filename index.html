@@ -18139,7 +18139,7 @@ function acctOpenPdfPreview(rows, filename, rawText) {
             </tbody>
           </table>
         </div>
-        ${rows.length === 0 ? '<div style="padding:30px;text-align:center;color:#a0a2b0;font-family:\\'DM Mono\\',monospace"><div style="font-size:13px;margin-bottom:10px">No rows detected automatically</div><div style="font-size:10px">The PDF format may not match the standard Amazon Business Report. Paste sales data manually below.</div></div>' : ''}
+        ${rows.length === 0 ? `<div style="padding:30px;text-align:center;color:#a0a2b0;font-family:'DM Mono',monospace"><div style="font-size:13px;margin-bottom:10px">No rows detected automatically</div><div style="font-size:10px">The PDF format may not match the standard Amazon Business Report. Paste sales data manually below.</div></div>` : ''}
         <details style="margin-top:14px;color:#a0a2b0;font-family:'DM Mono',monospace;font-size:10px">
           <summary style="cursor:pointer">\u25b8 View raw PDF text (for debugging/manual entry)</summary>
           <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;max-height:300px;overflow:auto;font-size:9px;white-space:pre-wrap">${(rawText||'').slice(0,8000).replace(/</g,'&lt;')}</pre>
