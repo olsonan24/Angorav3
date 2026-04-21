@@ -4136,6 +4136,12 @@
       Home
     </button>
 
+    <button class="sidebar-nav-item" id="sbInbox" onclick="switchTool('inbox');sbSetActive('sbInbox')" style="position:relative">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/><path d="M3 8h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8z"/><polyline points="3 8 12 14 21 8"/></svg>
+      Messages
+      <span id="sbInboxBadge" style="display:none;background:#ff4d6d;color:#fff;font-size:8px;font-weight:800;padding:2px 6px;border-radius:10px;margin-left:auto"></span>
+    </button>
+
     <div style="height:1px;background:var(--border);margin:8px 12px"></div>
 
     <!-- Teams section -->
@@ -8615,14 +8621,15 @@ window.addEventListener('angora-auth-changed', (event) => {
 function switchTool(tool) {
   currentTool = tool;
   if (tool === 'home') { setTimeout(initDashboard, 50); setTimeout(renderHomeAuditPreview, 80); }
-  ['home','ppc','pnl','funnel','sku','skulib','inv','salessku','calc','weekly','settings','adminqueue','audit','ops','auditsched'].forEach(t => {
+  if (tool === 'inbox') { setTimeout(initInbox, 50); }
+  ['home','ppc','pnl','funnel','sku','skulib','inv','salessku','calc','weekly','settings','adminqueue','audit','ops','auditsched','inbox'].forEach(t => {
     const cap  = t.charAt(0).toUpperCase() + t.slice(1);
     const page = document.getElementById('page' + cap);
     const nav  = document.getElementById('nav'  + cap);
     if (page) page.classList.toggle('active', t === tool);
     if (nav)  nav.classList.toggle('active',  t === tool);
   });
-  const names = { home: 'The Garden', ppc: 'Search Term Audit', pnl: 'P&L Analysis', funnel: 'Funnel Audit', sku: 'SKU Economics', inv: 'Inventory Health', salessku: 'Sales by SKU', calc: 'FBA Calculator', weekly: 'Weekly Report', settings: 'Settings', adminqueue: 'Admin Approvals', audit: 'Monthly Brand Audit', ops: 'Account OPS' };
+  const names = { home: 'The Garden', ppc: 'Search Term Audit', pnl: 'P&L Analysis', funnel: 'Funnel Audit', sku: 'SKU Economics', inv: 'Inventory Health', salessku: 'Sales by SKU', calc: 'FBA Calculator', weekly: 'Weekly Report', settings: 'Settings', adminqueue: 'Admin Approvals', audit: 'Monthly Brand Audit', ops: 'Account OPS', inbox: 'Messages Inbox' };
   const badges = { ppc: 'Sponsored Products', pnl: 'Transaction View', funnel: 'Brand Analytics', sku: 'Business Report', inv: 'FBA Inventory', calc: 'FBA Fees 2025', weekly: 'Performance Dashboard', adminqueue: 'Super Admin Queue', audit: 'Deep Dive Analysis' };
   const nameEl  = document.getElementById('headerToolName');
   const badgeEl = document.getElementById('headerBadge');
@@ -14180,6 +14187,13 @@ function acctProfileClose() {
   setTimeout(() => {
     if (overlay) overlay.style.display = 'none';
   }, 320);
+  // Cleanup realtime channel
+  try {
+    if (_acctCache && _acctCache.msgChannel && window.angoraSupabase) {
+      window.angoraSupabase.removeChannel(_acctCache.msgChannel);
+      _acctCache.msgChannel = null;
+    }
+  } catch(e){}
 }
 
 function acctAutoSave() {
@@ -16945,6 +16959,51 @@ window.calDeleteAudit = async function() {
 <!-- ═══════════════════════════════════════════════════════════
      SALES BY SKU PAGE
 ═══════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════
+     MESSAGES INBOX PAGE
+═══════════════════════════════════════════════════════════ -->
+<div id="pageInbox" class="page">
+<style>
+  .inbox-wrap { max-width:1200px; margin:0 auto; padding:32px 40px 80px; display:grid; grid-template-columns:340px 1fr; gap:20px; height:calc(100vh - 120px); }
+  .inbox-list { background:var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; display:flex; flex-direction:column; }
+  .inbox-list-header { padding:16px 18px; border-bottom:1px solid var(--border); font-family:'DM Mono',monospace; font-size:11px; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:var(--accent); }
+  .inbox-list-body { flex:1; overflow-y:auto; }
+  .inbox-thread { padding:14px 18px; border-bottom:1px solid var(--border); cursor:pointer; transition:background 0.12s; }
+  .inbox-thread:hover { background:var(--surface2); }
+  .inbox-thread.active { background:var(--surface2); border-left:3px solid var(--accent); padding-left:15px; }
+  .inbox-thread-name { font-weight:700; color:var(--text); font-size:12px; margin-bottom:2px; font-family:'DM Mono',monospace; }
+  .inbox-thread-preview { font-size:10px; color:#a0a2b0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family:'DM Mono',monospace; }
+  .inbox-thread-time { font-size:9px; color:#a0a2b0; margin-top:3px; font-family:'DM Mono',monospace; }
+  .inbox-thread-unread { display:inline-block; background:#ff4d6d; color:#fff; padding:1px 6px; border-radius:8px; font-size:8px; font-weight:800; margin-left:8px; }
+  .inbox-chat { background:var(--surface); border:1px solid var(--border); border-radius:14px; display:flex; flex-direction:column; overflow:hidden; }
+  .inbox-chat-header { padding:16px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
+  .inbox-chat-body { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:10px; }
+  .inbox-msg { max-width:70%; padding:10px 14px; border-radius:12px; font-size:11px; font-family:'DM Mono',monospace; line-height:1.5; }
+  .inbox-msg-garden { background:var(--accent); color:#fff; align-self:flex-end; border-bottom-right-radius:3px; }
+  .inbox-msg-partner { background:var(--surface2); color:var(--text); align-self:flex-start; border-bottom-left-radius:3px; border:1px solid var(--border); }
+  .inbox-msg-meta { font-size:8px; opacity:0.7; margin-top:4px; text-transform:uppercase; letter-spacing:1px; }
+  .inbox-chat-footer { padding:14px 20px; border-top:1px solid var(--border); display:flex; gap:10px; }
+  .inbox-chat-footer input { flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:9px; padding:10px 14px; color:var(--text); font-family:'DM Mono',monospace; font-size:11px; outline:none; }
+  .inbox-chat-footer button { background:var(--accent); color:#fff; border:none; border-radius:9px; padding:10px 18px; font-family:'DM Mono',monospace; font-size:10px; font-weight:800; cursor:pointer; text-transform:uppercase; letter-spacing:1px; }
+  .inbox-empty { color:#a0a2b0; text-align:center; padding:60px 20px; font-family:'DM Mono',monospace; font-size:11px; }
+</style>
+<div class="inbox-wrap">
+  <div class="inbox-list">
+    <div class="inbox-list-header" id="inboxListHeader">Inbox</div>
+    <div class="inbox-list-body" id="inboxListBody">
+      <div class="inbox-empty">Loading\u2026</div>
+    </div>
+  </div>
+  <div class="inbox-chat" id="inboxChat">
+    <div class="inbox-empty" style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column">
+      <div style="font-size:28px;margin-bottom:12px">\ud83d\udcec</div>
+      <div>Select a conversation from the left</div>
+      <div style="font-size:9px;color:#a0a2b0;margin-top:6px">Messages sync in real-time with partners in the Partner App</div>
+    </div>
+  </div>
+</div>
+</div>
+
 <div id="pageSalesskuOuter" style="display:contents">
 <div id="pageSalessku" class="page">
 <style>
@@ -17262,8 +17321,9 @@ window.calDeleteAudit = async function() {
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
             <div class="acct-section-title" style="margin-bottom:0">Current Inventory</div>
-            <div style="display:flex;gap:8px">
-              <button class="acct-save-btn" onclick="acctSyncMondayInventory()" title="Pull from Monday.com Master Inventory Viewer">\u21bb Sync Monday</button>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="acctSyncLabel" style="font-size:9px;color:#a0a2b0;font-family:'DM Mono',monospace;margin-right:6px">\u2014</span>
+              <button class="acct-save-btn" onclick="acctSyncMondayInventory()" title="Force-refresh from Monday.com Master Inventory Viewer">\u21bb Sync Monday</button>
               <button class="acct-save-btn" id="acctInvSaveBtn" onclick="acctSaveInventory()" disabled>Save Changes</button>
             </div>
           </div>
@@ -17475,6 +17535,32 @@ async function acctRenderInventoryTab() {
   if (!accountId) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   const products = await acctLoadProducts(accountId);
   _acctCache.products = products;
+
+  // Auto-sync from Monday if last sync was >6h ago (or never)
+  try {
+    if (products.length > 0) {
+      const productIds = products.map(p => p.id);
+      const sb = window.angoraSupabase;
+      const { data: lastSync } = await sb.from('angora_inventory_history')
+        .select('recorded_at')
+        .in('product_id', productIds)
+        .eq('source', 'monday')
+        .order('recorded_at', { ascending: false })
+        .limit(1);
+      const lastTs = lastSync && lastSync[0] ? new Date(lastSync[0].recorded_at).getTime() : 0;
+      const hoursAgo = (Date.now() - lastTs) / (1000 * 60 * 60);
+      if (hoursAgo > 6) {
+        // Fire and forget - don't await
+        console.log(`[angora] Auto-syncing Monday (last sync ${hoursAgo.toFixed(1)}h ago)`);
+        acctSyncMondayInventoryQuiet(products).catch(e => console.warn('auto-sync err', e));
+      }
+      // Show last synced timestamp
+      const syncLabel = document.getElementById('acctSyncLabel');
+      if (syncLabel) {
+        syncLabel.textContent = lastTs ? `Last Monday sync: ${acctTimeAgo(lastTs)}` : 'Never synced from Monday';
+      }
+    }
+  } catch(e) { console.warn('auto-sync check err', e); }
   if (products.length === 0) {
     tbody.innerHTML = '';
     empty.style.display = 'block';
@@ -17589,6 +17675,37 @@ async function acctSaveInventory() {
   await sb.from('angora_inventory_history').insert(rows.map(r => ({ ...r, source: 'manual', recorded_by: userId })));
   _acctCache.invDirty.clear();
   acctRenderInventoryTab();
+}
+
+function acctTimeAgo(ts) {
+  const secs = Math.floor((Date.now() - ts) / 1000);
+  if (secs < 60) return secs + 's ago';
+  if (secs < 3600) return Math.floor(secs/60) + 'm ago';
+  if (secs < 86400) return Math.floor(secs/3600) + 'h ago';
+  return Math.floor(secs/86400) + 'd ago';
+}
+
+async function acctSyncMondayInventoryQuiet(products) {
+  // Same logic as the button-triggered sync but silent (no alerts)
+  const sb = window.angoraSupabase;
+  const { data: userRes } = await sb.auth.getUser();
+  const userId = userRes && userRes.user ? userRes.user.id : null;
+  const r = await fetch('/api/monday-inventory'); if (!r.ok) return;
+  const data = await r.json(); if (!data.items) return;
+  const byAsin = {};
+  data.items.forEach(it => { if (it.asin) byAsin[it.asin.toUpperCase()] = it; });
+  const upserts = [], history = [];
+  products.forEach(p => {
+    const a = (p.asin || '').toUpperCase(); const it = byAsin[a]; if (!it) return;
+    upserts.push({ product_id: p.id, location: 'angora', quantity: it.angoraWh, updated_by: userId, notes: `Auto-synced from Monday (${it.mpl_id || 'no MPL'})` });
+    history.push({ product_id: p.id, location: 'angora', quantity: it.angoraWh, source: 'monday', recorded_by: userId });
+  });
+  if (upserts.length) {
+    await sb.from('angora_inventory').upsert(upserts, { onConflict: 'product_id,location' });
+    await sb.from('angora_inventory_history').insert(history);
+    // Re-render after quiet sync
+    setTimeout(() => acctRenderInventoryTab(), 200);
+  }
 }
 
 async function acctSyncMondayInventory() {
@@ -18048,6 +18165,29 @@ async function acctRenderMessagesTab() {
   if (!threadId) return;
   const { data: msgs } = await sb.from('angora_messages').select('*').eq('thread_id', threadId).order('created_at');
   _acctCache.messages = msgs || [];
+
+  // Subscribe to realtime inserts on this thread
+  try {
+    if (_acctCache.msgChannel) { await sb.removeChannel(_acctCache.msgChannel); }
+    _acctCache.msgChannel = sb.channel(`acct-msgs-${threadId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'angora_messages', filter: `thread_id=eq.${threadId}` }, (payload) => {
+        // Append incoming message
+        const m = payload.new;
+        const exists = (_acctCache.messages || []).some(x => x.id === m.id);
+        if (exists) return;
+        _acctCache.messages.push(m);
+        const list = document.getElementById('acctMsgList');
+        if (list) {
+          const bubble = document.createElement('div');
+          bubble.style.cssText = 'padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:9px';
+          bubble.innerHTML = `<div style="font-size:9px;color:var(--accent);margin-bottom:4px">${(m.sender_type||'garden').toUpperCase()} · ${new Date(m.created_at).toLocaleString()}</div><div style="font-size:11px;color:#e8e9f0;white-space:pre-wrap">${(m.content||'').replace(/</g,'&lt;')}</div>`;
+          list.appendChild(bubble);
+          list.scrollTop = list.scrollHeight;
+          const empty = document.getElementById('acctMsgEmpty'); if (empty) empty.style.display = 'none';
+        }
+      })
+      .subscribe();
+  } catch(e) { console.warn('realtime subscribe err', e); }
   if (!msgs || msgs.length === 0) { list.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   list.innerHTML = msgs.map(m => `<div style="padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:9px">
@@ -18055,6 +18195,139 @@ async function acctRenderMessagesTab() {
     <div style="font-size:11px;color:#e8e9f0;white-space:pre-wrap">${(m.content||'').replace(/</g,'&lt;')}</div>
   </div>`).join('');
   list.scrollTop = list.scrollHeight;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// GLOBAL MESSAGES INBOX
+// ══════════════════════════════════════════════════════════════════════════
+let _inboxState = { threads: [], activeThreadId: null, accountsById: {}, msgChannel: null, inboxChannel: null };
+
+async function initInbox() {
+  const body = document.getElementById('inboxListBody');
+  if (!body) return;
+  body.innerHTML = '<div class="inbox-empty">Loading\u2026</div>';
+  const sb = window.angoraSupabase; if (!sb) { body.innerHTML = '<div class="inbox-empty">Not signed in.</div>'; return; }
+
+  // Load all accounts (RLS restricts to ones the user can see)
+  const { data: accounts, error: accErr } = await sb.from('angora_accounts').select('id, name').eq('status', 'active').order('name');
+  if (accErr) { body.innerHTML = '<div class="inbox-empty">Error: ' + accErr.message + '</div>'; return; }
+  const byId = {};
+  (accounts || []).forEach(a => { byId[a.id] = a; });
+  _inboxState.accountsById = byId;
+
+  // Load threads joined with last message
+  const { data: threads } = await sb.from('angora_message_threads').select('id, account_id, subject, updated_at, status').in('account_id', Object.keys(byId)).order('updated_at', { ascending: false });
+  if (!threads || threads.length === 0) {
+    body.innerHTML = '<div class="inbox-empty">No messages yet.<br><br><span style="font-size:9px">Start a conversation from any account\'s Messages tab.</span></div>';
+    return;
+  }
+  // Fetch last message for each thread in parallel
+  const lastMsgs = await Promise.all(threads.map(t =>
+    sb.from('angora_messages').select('content, sender_type, created_at').eq('thread_id', t.id).order('created_at', { ascending: false }).limit(1).then(r => r.data && r.data[0])
+  ));
+  _inboxState.threads = threads.map((t, i) => ({ ...t, lastMsg: lastMsgs[i] || null, account: byId[t.account_id] }));
+
+  inboxRenderList();
+
+  // Subscribe to any new messages across all threads (for badge + live list updates)
+  try {
+    if (_inboxState.inboxChannel) { sb.removeChannel(_inboxState.inboxChannel); }
+    _inboxState.inboxChannel = sb.channel('inbox-global').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'angora_messages' }, (payload) => {
+      // Refresh just the affected thread
+      const m = payload.new;
+      const thr = _inboxState.threads.find(t => t.id === m.thread_id);
+      if (thr) {
+        thr.lastMsg = { content: m.content, sender_type: m.sender_type, created_at: m.created_at };
+        thr.updated_at = m.created_at;
+        _inboxState.threads.sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at));
+        inboxRenderList();
+        // If the active thread, append to chat too
+        if (_inboxState.activeThreadId === m.thread_id) {
+          inboxAppendMessage(m);
+        }
+      }
+    }).subscribe();
+  } catch(e) { console.warn('inbox global subscribe err', e); }
+
+  // Auto-open first thread
+  if (_inboxState.threads[0]) inboxOpenThread(_inboxState.threads[0].id);
+}
+
+function inboxRenderList() {
+  const body = document.getElementById('inboxListBody');
+  const header = document.getElementById('inboxListHeader');
+  if (!body) return;
+  header.textContent = `Inbox (${_inboxState.threads.length})`;
+  body.innerHTML = _inboxState.threads.map(t => {
+    const last = t.lastMsg;
+    const preview = last ? (last.content || '').slice(0, 60) : '(no messages yet)';
+    const time = last ? acctTimeAgo(new Date(last.created_at).getTime()) : '';
+    const who = last && last.sender_type === 'partner' ? '<span style="color:#ffd166">Partner:</span> ' : '';
+    const active = t.id === _inboxState.activeThreadId ? 'active' : '';
+    return `<div class="inbox-thread ${active}" onclick="inboxOpenThread('${t.id}')">
+      <div class="inbox-thread-name">${(t.account?.name || 'Unknown').replace(/</g,'&lt;')}</div>
+      <div class="inbox-thread-preview">${who}${preview.replace(/</g,'&lt;')}</div>
+      <div class="inbox-thread-time">${time}</div>
+    </div>`;
+  }).join('');
+}
+
+async function inboxOpenThread(threadId) {
+  _inboxState.activeThreadId = threadId;
+  inboxRenderList();
+  const chat = document.getElementById('inboxChat');
+  const thr = _inboxState.threads.find(t => t.id === threadId);
+  if (!thr) return;
+  chat.innerHTML = `
+    <div class="inbox-chat-header">
+      <div>
+        <div style="font-weight:800;color:var(--accent);font-family:'DM Mono',monospace;font-size:12px;text-transform:uppercase;letter-spacing:2px">${thr.account?.name || '?'}</div>
+        <div style="font-size:9px;color:#a0a2b0;margin-top:3px;font-family:'DM Mono',monospace">${thr.subject || 'Partner chat'}</div>
+      </div>
+      <button onclick="inboxOpenAccount('${thr.id}')" style="margin-left:auto;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 14px;color:var(--text);cursor:pointer;font-family:'DM Mono',monospace;font-size:10px">Open account \u2192</button>
+    </div>
+    <div class="inbox-chat-body" id="inboxChatBody"></div>
+    <div class="inbox-chat-footer">
+      <input id="inboxChatInput" placeholder="Type a message\u2026" onkeypress="if(event.key==='Enter') inboxSend()">
+      <button onclick="inboxSend()">Send</button>
+    </div>
+  `;
+  const sb = window.angoraSupabase;
+  const { data: msgs } = await sb.from('angora_messages').select('*').eq('thread_id', threadId).order('created_at');
+  const body = document.getElementById('inboxChatBody');
+  body.innerHTML = (msgs || []).map(inboxMsgHtml).join('');
+  body.scrollTop = body.scrollHeight;
+}
+
+function inboxMsgHtml(m) {
+  const cls = m.sender_type === 'partner' ? 'inbox-msg-partner' : 'inbox-msg-garden';
+  return `<div class="inbox-msg ${cls}">${(m.content||'').replace(/</g,'&lt;')}<div class="inbox-msg-meta">${m.sender_type} \u00b7 ${new Date(m.created_at).toLocaleString()}</div></div>`;
+}
+
+function inboxAppendMessage(m) {
+  const body = document.getElementById('inboxChatBody');
+  if (!body) return;
+  const div = document.createElement('div');
+  div.innerHTML = inboxMsgHtml(m);
+  body.appendChild(div.firstChild);
+  body.scrollTop = body.scrollHeight;
+}
+
+function inboxOpenAccount(threadId) {
+  const thr = _inboxState.threads.find(t => t.id === threadId);
+  if (thr && thr.account && thr.account.name) acctProfileOpen(thr.account.name);
+}
+
+async function inboxSend() {
+  const input = document.getElementById('inboxChatInput');
+  const content = (input.value || '').trim(); if (!content) return;
+  const threadId = _inboxState.activeThreadId; if (!threadId) return;
+  const sb = window.angoraSupabase;
+  const { data: userRes } = await sb.auth.getUser();
+  const userId = userRes && userRes.user ? userRes.user.id : null;
+  const { error } = await sb.from('angora_messages').insert({ thread_id: threadId, sender_id: userId, sender_type: 'garden', content });
+  if (error) return alert('Send failed: ' + error.message);
+  input.value = '';
 }
 
 async function acctSendMessage() {
