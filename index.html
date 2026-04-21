@@ -8,6 +8,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <style>
   :root {
     --mono-font: 'DM Mono', monospace;
@@ -64,6 +66,43 @@
   :root:not(.light) input::placeholder,
   :root:not(.light) textarea::placeholder { color: #a0a2b0 !important; opacity: 0.75 !important; }
   :root:not(.light) .search-input::placeholder { color: #a0a2b0 !important; }
+
+  /* ── Account View Tabs ────────────────────────────────────────── */
+  .acct-tabs { display:flex; gap:4px; padding:12px 24px 0; background:rgba(14,14,18,0.95); border-bottom:1px solid var(--border); flex-shrink:0; overflow-x:auto; scrollbar-width:none; }
+  .acct-tabs::-webkit-scrollbar { display:none; }
+  .acct-tab { background:none; border:none; color:#a0a2b0; font-family:'DM Mono',monospace; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; padding:10px 14px; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; white-space:nowrap; }
+  .acct-tab:hover { color:#e8e9f0; }
+  .acct-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+  .acct-tab-panel { display:none; }
+  .acct-tab-panel.active { display:flex; flex-direction:column; gap:22px; }
+  .acct-section-title { font-family:'DM Mono',monospace; font-size:9px; text-transform:uppercase; letter-spacing:2.5px; color:#e8e9f0; opacity:0.85; margin-bottom:14px; }
+  .acct-stat-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:10px; }
+  .acct-stat-card { background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:12px 14px; }
+  .acct-stat-label { font-family:'DM Mono',monospace; font-size:8px; text-transform:uppercase; letter-spacing:1.5px; color:#a0a2b0; margin-bottom:6px; }
+  .acct-stat-value { font-family:'Syne',sans-serif; font-size:22px; font-weight:700; color:#e8e9f0; }
+  .acct-stat-sub { font-family:'DM Mono',monospace; font-size:9px; color:#a0a2b0; margin-top:4px; }
+  .acct-data-table { width:100%; border-collapse:collapse; font-family:'DM Mono',monospace; font-size:10px; }
+  .acct-data-table th { text-align:left; padding:8px 10px; color:#a0a2b0; text-transform:uppercase; letter-spacing:1px; font-weight:600; font-size:9px; border-bottom:1px solid var(--border); }
+  .acct-data-table td { padding:8px 10px; color:#e8e9f0; border-bottom:1px solid rgba(255,255,255,0.04); }
+  .acct-data-table td input { background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:5px 7px; color:#e8e9f0; font-family:inherit; font-size:10px; width:70px; outline:none; }
+  .acct-data-table td input:focus { border-color:var(--accent); }
+  .acct-data-table tr.runway-danger td { background:rgba(255,77,109,0.06); }
+  .acct-data-table tr.spike-alert td { background:rgba(255,209,102,0.08); }
+  .acct-empty { text-align:center; padding:40px 20px; color:#a0a2b0; font-family:'DM Mono',monospace; font-size:11px; }
+  .acct-empty-action { display:inline-block; margin-top:12px; background:rgba(107,143,255,0.12); border:1px solid rgba(107,143,255,0.35); border-radius:8px; color:var(--accent); padding:8px 16px; font-size:10px; cursor:pointer; text-transform:uppercase; letter-spacing:1px; font-weight:600; }
+  .acct-empty-action:hover { background:rgba(107,143,255,0.22); }
+  .acct-chart-wrap { position:relative; height:260px; margin-top:8px; }
+  .acct-filter-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+  .acct-filter-row select, .acct-filter-row input { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:7px 10px; color:#e8e9f0; font-family:'DM Mono',monospace; font-size:10px; outline:none; }
+  .acct-save-btn { background:rgba(107,143,255,0.12); border:1px solid rgba(107,143,255,0.35); border-radius:8px; color:var(--accent); font-family:'DM Mono',monospace; font-size:10px; padding:7px 16px; cursor:pointer; letter-spacing:1px; font-weight:600; text-transform:uppercase; }
+  .acct-save-btn:hover { background:rgba(107,143,255,0.22); }
+  .acct-save-btn:disabled { opacity:0.5; cursor:not-allowed; }
+  .acct-pill-ok { display:inline-block; background:rgba(77,255,180,0.12); border:1px solid rgba(77,255,180,0.3); color:#4dffb4; padding:2px 8px; border-radius:20px; font-size:8px; letter-spacing:1px; text-transform:uppercase; }
+  .acct-pill-warn { display:inline-block; background:rgba(255,209,102,0.12); border:1px solid rgba(255,209,102,0.3); color:#ffd166; padding:2px 8px; border-radius:20px; font-size:8px; letter-spacing:1px; text-transform:uppercase; }
+  .acct-pill-danger { display:inline-block; background:rgba(255,77,109,0.12); border:1px solid rgba(255,77,109,0.3); color:#ff4d6d; padding:2px 8px; border-radius:20px; font-size:8px; letter-spacing:1px; text-transform:uppercase; }
+  :root.light .acct-tabs { background:#ffffff; }
+  :root.light .acct-stat-value { color:var(--text); }
+  :root.light .acct-data-table td { color:var(--text); }
 
   :root.light body { background: var(--bg); }
   :root.light .glow-orb { opacity: 0.12; }
@@ -14081,6 +14120,8 @@ async function asViewAccount() {
 
 async function acctProfileOpen(brand, specialist) {
   _acctActiveBrand = brand;
+  // Reset cache on new account
+  _acctCache = { accountId: null, brand: null, products: [], dailySales: [], inventory: [], economics: [], messages: [], salesChart: null, invDirty: new Map() };
   const overlay = document.getElementById('acctProfileOverlay');
   const panel   = document.getElementById('acctProfilePanel');
   if (!overlay || !panel) { console.error('acctProfileOpen: overlay or panel not found'); return; }
@@ -14088,6 +14129,8 @@ async function acctProfileOpen(brand, specialist) {
   // Show panel immediately — don't wait for data
   overlay.style.display = 'block';
   requestAnimationFrame(() => { panel.style.transform = 'translateX(0)'; });
+  // Reset to overview tab
+  try { acctSwitchTab('overview'); } catch(e){}
 
   // Set brand name + accent
   const nameEl = document.getElementById('acctProfileName');
@@ -17077,9 +17120,20 @@ window.calDeleteAudit = async function() {
       <button onclick="acctProfileClose()" style="background:none;border:1px solid var(--border);border-radius:9px;color:var(--muted);padding:7px 14px;font-family:'DM Mono',monospace;font-size:9px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all 0.15s" onmouseover="this.style.borderColor='rgba(107,143,255,0.4)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">✕ Close</button>
     </div>
 
-    <!-- Scrollable body -->
-    <div style="flex:1;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:22px;scrollbar-width:thin;scrollbar-color:var(--border) transparent">
+    <!-- Tabs nav -->
+    <div class="acct-tabs" id="acctTabsNav">
+      <button class="acct-tab active" data-tab="overview" onclick="acctSwitchTab('overview')">Overview</button>
+      <button class="acct-tab" data-tab="sales" onclick="acctSwitchTab('sales')">Sales</button>
+      <button class="acct-tab" data-tab="inventory" onclick="acctSwitchTab('inventory')">Inventory</button>
+      <button class="acct-tab" data-tab="economics" onclick="acctSwitchTab('economics')">Economics</button>
+      <button class="acct-tab" data-tab="messages" onclick="acctSwitchTab('messages')">Messages</button>
+    </div>
 
+    <!-- Scrollable body -->
+    <div style="flex:1;overflow-y:auto;padding:24px;scrollbar-width:thin;scrollbar-color:var(--border) transparent" id="acctBodyScroll">
+
+      <!-- OVERVIEW TAB -->
+      <div class="acct-tab-panel active" data-tabpanel="overview" id="acctPanelOverview">
       <!-- Contact & Meta -->
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
         <div style="font-family:'DM Mono',monospace;font-size:8px;text-transform:uppercase;letter-spacing:2.5px;color:var(--muted);margin-bottom:16px;opacity:0.7">Contact Info</div>
@@ -17159,9 +17213,620 @@ window.calDeleteAudit = async function() {
         <div id="acctAuditHistory" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
 
+      </div><!-- /overview panel -->
+
+      <!-- SALES TAB -->
+      <div class="acct-tab-panel" data-tabpanel="sales" id="acctPanelSales">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
+          <div class="acct-section-title">Daily Sales</div>
+          <div class="acct-filter-row">
+            <label style="font-size:9px;color:#a0a2b0;text-transform:uppercase;letter-spacing:1px">SKU:</label>
+            <select id="acctSalesSku"><option value="__all__">All SKUs</option></select>
+            <label style="font-size:9px;color:#a0a2b0;text-transform:uppercase;letter-spacing:1px">Range:</label>
+            <select id="acctSalesRange" onchange="acctRenderSalesTab()">
+              <option value="30">Last 30 days</option>
+              <option value="90" selected>Last 90 days</option>
+              <option value="180">Last 6 months</option>
+              <option value="365">Last year</option>
+            </select>
+            <label style="font-size:9px;color:#a0a2b0;text-transform:uppercase;letter-spacing:1px">Metric:</label>
+            <select id="acctSalesMetric" onchange="acctRenderSalesTab()">
+              <option value="units" selected>Units sold</option>
+              <option value="revenue">Revenue ($)</option>
+            </select>
+            <button class="acct-save-btn" onclick="acctAddManualSale()" style="margin-left:auto">+ Manual Entry</button>
+            <button class="acct-save-btn" onclick="acctUploadPdf()">\u2b06 Upload Amazon PDF</button>
+          </div>
+          <div class="acct-stat-grid" id="acctSalesStats"></div>
+          <div class="acct-chart-wrap"><canvas id="acctSalesChart"></canvas></div>
+          <div id="acctSalesEmpty" class="acct-empty" style="display:none">
+            No sales data yet for this account.<br>
+            <span class="acct-empty-action" onclick="acctAddManualSale()">Add sale manually</span>
+            <span class="acct-empty-action" onclick="acctUploadPdf()" style="margin-left:8px">Upload Amazon report</span>
+          </div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
+          <div class="acct-section-title">Notes on Timeline</div>
+          <div id="acctNotesOverlay" style="font-size:10px;color:#a0a2b0;font-family:'DM Mono',monospace"></div>
+        </div>
+      </div>
+
+      <!-- INVENTORY TAB -->
+      <div class="acct-tab-panel" data-tabpanel="inventory" id="acctPanelInventory">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div class="acct-section-title" style="margin-bottom:0">Current Inventory</div>
+            <div style="display:flex;gap:8px">
+              <button class="acct-save-btn" onclick="acctSyncMondayInventory()" title="Pull from Monday.com Master Inventory Viewer">\u21bb Sync Monday</button>
+              <button class="acct-save-btn" id="acctInvSaveBtn" onclick="acctSaveInventory()" disabled>Save Changes</button>
+            </div>
+          </div>
+          <div class="acct-stat-grid" id="acctInvStats" style="margin-bottom:18px"></div>
+          <div style="overflow-x:auto">
+            <table class="acct-data-table" id="acctInvTable">
+              <thead><tr>
+                <th>SKU</th><th>Product</th>
+                <th style="text-align:right">FBA</th>
+                <th style="text-align:right">AWD</th>
+                <th style="text-align:right">Angora WH</th>
+                <th style="text-align:right">Reserved</th>
+                <th style="text-align:right">Wk Velocity</th>
+                <th style="text-align:right">Runway</th>
+                <th>Status</th>
+              </tr></thead>
+              <tbody id="acctInvTbody"></tbody>
+            </table>
+          </div>
+          <div id="acctInvEmpty" class="acct-empty" style="display:none">
+            No products for this account yet.<br>
+            <span class="acct-empty-action" onclick="acctSeedProducts()">Seed from Product Library</span>
+            <span class="acct-empty-action" onclick="acctSyncMondayInventory()" style="margin-left:8px">Pull from Monday</span>
+          </div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
+          <div class="acct-section-title">Runway & Spike Alerts</div>
+          <div id="acctInvAlerts" style="display:flex;flex-direction:column;gap:8px;font-size:11px;color:#e8e9f0;font-family:'DM Mono',monospace"></div>
+        </div>
+      </div>
+
+      <!-- ECONOMICS TAB -->
+      <div class="acct-tab-panel" data-tabpanel="economics" id="acctPanelEconomics">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div class="acct-section-title" style="margin-bottom:0">Per-SKU P&amp;L</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="acctEconRange" class="" onchange="acctRenderEconomicsTab()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:#e8e9f0;font-family:'DM Mono',monospace;font-size:10px">
+                <option value="30" selected>Trailing 30 days</option>
+                <option value="90">Trailing 90 days</option>
+                <option value="365">Trailing 12 months</option>
+              </select>
+              <button class="acct-save-btn" onclick="acctRecalcEconomics()">\u21bb Recalculate</button>
+            </div>
+          </div>
+          <div class="acct-stat-grid" id="acctEconSummary" style="margin-bottom:18px"></div>
+          <div style="overflow-x:auto">
+            <table class="acct-data-table" id="acctEconTable">
+              <thead><tr>
+                <th>SKU</th>
+                <th style="text-align:right">Units</th>
+                <th style="text-align:right">Net Rev</th>
+                <th style="text-align:right">FBA Fees</th>
+                <th style="text-align:right">Referral</th>
+                <th style="text-align:right">COGS</th>
+                <th style="text-align:right">P&amp;P</th>
+                <th style="text-align:right">Advert.</th>
+                <th style="text-align:right">Net Profit</th>
+                <th style="text-align:right">Margin</th>
+              </tr></thead>
+              <tbody id="acctEconTbody"></tbody>
+              <tfoot id="acctEconTfoot"></tfoot>
+            </table>
+          </div>
+          <div id="acctEconEmpty" class="acct-empty" style="display:none">
+            No economics data yet. Economics are computed from daily sales + product costs.<br>
+            <span class="acct-empty-action" onclick="acctSwitchTab('sales'); acctAddManualSale()">Add sales data first</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- MESSAGES TAB -->
+      <div class="acct-tab-panel" data-tabpanel="messages" id="acctPanelMessages">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
+          <div class="acct-section-title">Messages with Partner</div>
+          <div id="acctMsgList" style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;margin-bottom:12px"></div>
+          <div style="display:flex;gap:8px">
+            <input id="acctMsgInput" type="text" placeholder="Write a message\u2026" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px;outline:none">
+            <button class="acct-save-btn" onclick="acctSendMessage()">Send</button>
+          </div>
+          <div id="acctMsgEmpty" class="acct-empty" style="display:none">No messages yet with this partner.</div>
+        </div>
+      </div>
+
     </div><!-- /scrollable body -->
   </div><!-- /panel -->
 </div><!-- /acctProfileOverlay -->
+
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════
+// ACCOUNT VIEW TABS — Sales / Inventory / Economics / Messages
+// Wires the Account Profile panel to angora_accounts, angora_products,
+// angora_inventory, angora_daily_sales, angora_sku_economics, angora_messages.
+// Auto-creates account + products from the in-memory product library if missing.
+// ══════════════════════════════════════════════════════════════════════════
+
+let _acctCache = { accountId: null, brand: null, products: [], dailySales: [], inventory: [], economics: [], messages: [], salesChart: null, invDirty: new Map() };
+
+function acctSwitchTab(tab) {
+  document.querySelectorAll('.acct-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.acct-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tabpanel === tab));
+  const scroll = document.getElementById('acctBodyScroll');
+  if (scroll) scroll.scrollTop = 0;
+  if (tab === 'sales')      acctRenderSalesTab();
+  if (tab === 'inventory')  acctRenderInventoryTab();
+  if (tab === 'economics')  acctRenderEconomicsTab();
+  if (tab === 'messages')   acctRenderMessagesTab();
+}
+
+async function acctEnsureAccount(brand) {
+  if (!brand) return null;
+  if (_acctCache.brand === brand && _acctCache.accountId) return _acctCache.accountId;
+  const sb = window.angoraSupabase || (typeof getSupabaseClient === 'function' ? await getSupabaseClient() : null);
+  if (!sb) return null;
+  try {
+    // Try to find existing
+    const slug = brand.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    let { data: existing, error: selErr } = await sb.from('angora_accounts').select('id').eq('name', brand).limit(1);
+    if (selErr) console.warn('acctEnsureAccount select err', selErr);
+    let accountId = existing && existing[0] ? existing[0].id : null;
+    if (!accountId) {
+      const { data: userRes } = await sb.auth.getUser();
+      const userId = userRes && userRes.user ? userRes.user.id : null;
+      const { data: created, error: insErr } = await sb.from('angora_accounts').insert({ name: brand, slug, created_by: userId }).select('id').single();
+      if (insErr) { console.warn('acctEnsureAccount insert err', insErr); return null; }
+      accountId = created.id;
+    }
+    _acctCache.accountId = accountId;
+    _acctCache.brand = brand;
+    return accountId;
+  } catch (e) { console.warn('acctEnsureAccount err', e); return null; }
+}
+
+async function acctLoadProducts(accountId) {
+  if (!accountId) return [];
+  const sb = window.angoraSupabase; if (!sb) return [];
+  const { data, error } = await sb.from('angora_products').select('*').eq('account_id', accountId).eq('status', 'active').order('name');
+  if (error) { console.warn('acctLoadProducts err', error); return []; }
+  return data || [];
+}
+
+async function acctSeedProducts() {
+  const brand = _acctCache.brand || _acctActiveBrand;
+  const accountId = await acctEnsureAccount(brand);
+  if (!accountId) { alert('Please sign in first — could not resolve account.'); return; }
+  // Pull products from existing product library (_plCache[brand] = { sku: {...}, ... })
+  let mine = [];
+  try {
+    const lib = (typeof _plCache !== 'undefined' && _plCache) ? _plCache : {};
+    const byBrand = lib[brand] || {};
+    mine = Object.values(byBrand);
+  } catch(e) { console.warn('seed: plCache err', e); }
+  if (mine.length === 0) { alert(`No products found in the Product Library for "${brand}". Add them in the Product Library first.`); return; }
+  const sb = window.angoraSupabase;
+  const rows = mine.map(p => ({
+    account_id: accountId,
+    name: p.name || p.title || 'Unnamed',
+    sku: p.sku || p.asin || (p.name ? p.name.slice(0, 40) : null),
+    asin: p.asin || null,
+    category: p.category || null,
+    cogs: Number(p.cogs) || 0,
+    price: Number(p.price) || 0,
+    weight_oz: Number(p.oz || p.weight) || null,
+    length_in: Number(p.l || p.length) || null,
+    width_in: Number(p.w || p.width) || null,
+    height_in: Number(p.h || p.height) || null,
+    status: 'active',
+  }));
+  // Check which products already exist for this account
+  const { data: existing } = await sb.from('angora_products').select('sku,asin,name').eq('account_id', accountId);
+  const existingKeys = new Set((existing||[]).map(e => (e.sku || e.asin || e.name || '').toLowerCase()));
+  const toInsert = rows.filter(r => !existingKeys.has(((r.sku || r.asin || r.name) || '').toLowerCase()));
+  if (toInsert.length === 0) { alert('All products for this brand are already in the account.'); return; }
+  const { data, error } = await sb.from('angora_products').insert(toInsert).select();
+  if (error) { console.warn('seed err', error); alert('Seed failed: ' + error.message); return; }
+  alert(`Seeded ${toInsert.length} products to the account (${rows.length - toInsert.length} already present).`);
+  _acctCache.products = [];
+  acctRenderInventoryTab();
+}
+
+async function acctLoadInventory(productIds) {
+  if (!productIds.length) return [];
+  const sb = window.angoraSupabase; if (!sb) return [];
+  const { data, error } = await sb.from('angora_inventory').select('*').in('product_id', productIds);
+  if (error) { console.warn('acctLoadInventory err', error); return []; }
+  return data || [];
+}
+
+async function acctLoadDailySales(productIds, daysBack) {
+  if (!productIds.length) return [];
+  const sb = window.angoraSupabase; if (!sb) return [];
+  const since = new Date(); since.setDate(since.getDate() - (daysBack || 90));
+  const { data, error } = await sb.from('angora_daily_sales').select('*').in('product_id', productIds).gte('sale_date', since.toISOString().slice(0,10)).order('sale_date');
+  if (error) { console.warn('acctLoadDailySales err', error); return []; }
+  return data || [];
+}
+
+// ── INVENTORY TAB ─────────────────────────────────────────────────────────
+async function acctRenderInventoryTab() {
+  const tbody = document.getElementById('acctInvTbody');
+  const empty = document.getElementById('acctInvEmpty');
+  const stats = document.getElementById('acctInvStats');
+  const alerts = document.getElementById('acctInvAlerts');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="9" style="padding:20px;text-align:center;color:#a0a2b0">Loading…</td></tr>';
+  const brand = _acctActiveBrand;
+  const accountId = await acctEnsureAccount(brand);
+  if (!accountId) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  const products = await acctLoadProducts(accountId);
+  _acctCache.products = products;
+  if (products.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    stats.innerHTML = '';
+    alerts.innerHTML = '';
+    return;
+  }
+  empty.style.display = 'none';
+  const productIds = products.map(p => p.id);
+  const [inv, sales] = await Promise.all([
+    acctLoadInventory(productIds),
+    acctLoadDailySales(productIds, 84), // 12 weeks = 84 days
+  ]);
+  _acctCache.inventory = inv;
+  _acctCache.dailySales = sales;
+  _acctCache.invDirty.clear();
+
+  // Compute weekly velocity per product = trailing 12-wk avg units/wk
+  const velByPid = {};
+  const salesByPid = {};
+  products.forEach(p => { velByPid[p.id] = 0; salesByPid[p.id] = []; });
+  sales.forEach(s => { if (salesByPid[s.product_id]) salesByPid[s.product_id].push(s); });
+  Object.keys(salesByPid).forEach(pid => {
+    const rows = salesByPid[pid];
+    const total = rows.reduce((a,r) => a + (r.units_sold || 0), 0);
+    velByPid[pid] = rows.length ? (total / 12) : 0; // avg per week over last 12 weeks
+  });
+
+  // Inventory lookup: { pid: { fba, awd, angora, reserved } }
+  const locByPid = {};
+  products.forEach(p => { locByPid[p.id] = { fba:0, awd:0, angora:0, other:0 }; });
+  inv.forEach(i => { if (locByPid[i.product_id]) locByPid[i.product_id][i.location] = i.quantity; });
+  // Reserved = 'other' for now (we treat 'other' location as reserved)
+  // Actually map reserved separately — leave as 0 if not set
+
+  let totalFba = 0, totalAwd = 0, totalAng = 0, totalVel = 0, dangerCount = 0, spikeCount = 0;
+  tbody.innerHTML = products.map(p => {
+    const lo = locByPid[p.id];
+    const vel = velByPid[p.id];
+    const runway = vel > 0 ? (lo.fba / vel).toFixed(1) : '∞';
+    const runwayNum = vel > 0 ? (lo.fba / vel) : 999;
+    const dangerClass = runwayNum < 4 ? 'runway-danger' : '';
+    // Spike detection: compare last week to trailing avg
+    const rows = salesByPid[p.id];
+    let spike = false;
+    if (rows.length > 0 && vel > 0) {
+      const lastWeek = rows.filter(r => {
+        const d = new Date(r.sale_date); const d7 = new Date(); d7.setDate(d7.getDate()-7); return d >= d7;
+      }).reduce((a,r)=>a+(r.units_sold||0),0);
+      if (lastWeek > vel * 5) spike = true;
+    }
+    const spikeClass = spike ? 'spike-alert' : '';
+    const rowClass = spikeClass || dangerClass;
+    totalFba += lo.fba; totalAwd += lo.awd; totalAng += lo.angora; totalVel += vel;
+    if (runwayNum < 4) dangerCount++;
+    if (spike) spikeCount++;
+    const status = spike ? '<span class="acct-pill-warn">Spike</span>' : (runwayNum < 2 ? '<span class="acct-pill-danger">Out soon</span>' : (runwayNum < 4 ? '<span class="acct-pill-warn">Low</span>' : '<span class="acct-pill-ok">OK</span>'));
+    return `<tr class="${rowClass}">
+      <td style="font-weight:700">${p.sku || '—'}</td>
+      <td>${(p.name||'').replace(/</g,'&lt;').slice(0,40)}</td>
+      <td style="text-align:right"><input type="number" min="0" value="${lo.fba}" data-pid="${p.id}" data-loc="fba" oninput="acctInvCellChange(this)"></td>
+      <td style="text-align:right"><input type="number" min="0" value="${lo.awd}" data-pid="${p.id}" data-loc="awd" oninput="acctInvCellChange(this)"></td>
+      <td style="text-align:right"><input type="number" min="0" value="${lo.angora}" data-pid="${p.id}" data-loc="angora" oninput="acctInvCellChange(this)"></td>
+      <td style="text-align:right"><input type="number" min="0" value="${lo.other}" data-pid="${p.id}" data-loc="other" oninput="acctInvCellChange(this)"></td>
+      <td style="text-align:right">${vel.toFixed(1)}/wk</td>
+      <td style="text-align:right;font-weight:700">${runway === '∞' ? '∞' : runway + 'w'}</td>
+      <td>${status}</td>
+    </tr>`;
+  }).join('');
+
+  stats.innerHTML = `
+    <div class="acct-stat-card"><div class="acct-stat-label">FBA Total</div><div class="acct-stat-value">${totalFba.toLocaleString()}</div><div class="acct-stat-sub">units in Amazon FBA</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">AWD</div><div class="acct-stat-value">${totalAwd.toLocaleString()}</div><div class="acct-stat-sub">units in Amazon AWD</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Angora WH</div><div class="acct-stat-value">${totalAng.toLocaleString()}</div><div class="acct-stat-sub">units at partner WH</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Velocity</div><div class="acct-stat-value">${totalVel.toFixed(0)}</div><div class="acct-stat-sub">units/week (12-wk avg)</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Runway (blended)</div><div class="acct-stat-value">${totalVel > 0 ? (totalFba/totalVel).toFixed(1) + 'w' : '—'}</div><div class="acct-stat-sub">FBA ÷ velocity</div></div>
+  `;
+
+  const alertRows = [];
+  products.forEach(p => {
+    const lo = locByPid[p.id]; const vel = velByPid[p.id];
+    const runway = vel > 0 ? (lo.fba / vel) : 999;
+    if (runway < 4) alertRows.push(`<div>🚨 <b>${p.sku || p.name}</b> — only ${runway.toFixed(1)} weeks left in FBA (${lo.fba} units @ ${vel.toFixed(1)}/wk)</div>`);
+    const rows = salesByPid[p.id];
+    if (rows && rows.length > 0 && vel > 0) {
+      const lastWeek = rows.filter(r => { const d = new Date(r.sale_date); const d7 = new Date(); d7.setDate(d7.getDate()-7); return d >= d7; }).reduce((a,r)=>a+(r.units_sold||0),0);
+      if (lastWeek > vel * 5) alertRows.push(`<div>📈 <b>${p.sku || p.name}</b> — spike: ${lastWeek} units last 7 days vs ${vel.toFixed(1)}/wk avg (${Math.round(lastWeek/vel*100)}% of normal)</div>`);
+    }
+  });
+  alerts.innerHTML = alertRows.length ? alertRows.join('') : '<div style="color:#a0a2b0">All inventory healthy — no runway or spike alerts.</div>';
+}
+
+function acctInvCellChange(input) {
+  const pid = input.dataset.pid, loc = input.dataset.loc;
+  const key = `${pid}:${loc}`;
+  _acctCache.invDirty.set(key, { product_id: pid, location: loc, quantity: parseInt(input.value) || 0 });
+  const btn = document.getElementById('acctInvSaveBtn');
+  if (btn) btn.disabled = false;
+}
+
+async function acctSaveInventory() {
+  const sb = window.angoraSupabase; if (!sb) return;
+  const btn = document.getElementById('acctInvSaveBtn'); if (btn) btn.disabled = true;
+  const rows = Array.from(_acctCache.invDirty.values());
+  if (rows.length === 0) return;
+  const { data: userRes } = await sb.auth.getUser();
+  const userId = userRes && userRes.user ? userRes.user.id : null;
+  const upserts = rows.map(r => ({ ...r, updated_by: userId, updated_at: new Date().toISOString() }));
+  const { error } = await sb.from('angora_inventory').upsert(upserts, { onConflict: 'product_id,location' });
+  if (error) { alert('Save failed: ' + error.message); if (btn) btn.disabled = false; return; }
+  // Also insert history rows
+  await sb.from('angora_inventory_history').insert(rows.map(r => ({ ...r, source: 'manual', recorded_by: userId })));
+  _acctCache.invDirty.clear();
+  acctRenderInventoryTab();
+}
+
+async function acctSyncMondayInventory() {
+  alert('Monday.com inventory sync — coming in the next deploy (queued).');
+}
+
+// ── SALES TAB ─────────────────────────────────────────────────────────────
+async function acctRenderSalesTab() {
+  const brand = _acctActiveBrand;
+  const accountId = await acctEnsureAccount(brand);
+  if (!accountId) return;
+  const products = _acctCache.products.length ? _acctCache.products : await acctLoadProducts(accountId);
+  _acctCache.products = products;
+  const skuSel = document.getElementById('acctSalesSku');
+  const rangeSel = document.getElementById('acctSalesRange');
+  const metricSel = document.getElementById('acctSalesMetric');
+  const empty = document.getElementById('acctSalesEmpty');
+  const stats = document.getElementById('acctSalesStats');
+  const chartWrap = document.querySelector('#acctPanelSales .acct-chart-wrap');
+  if (products.length === 0) {
+    empty.style.display = 'block';
+    stats.innerHTML = '';
+    chartWrap.style.display = 'none';
+    return;
+  }
+  // populate sku dropdown
+  const curSku = skuSel.value;
+  skuSel.innerHTML = '<option value="__all__">All SKUs</option>' + products.map(p => `<option value="${p.id}">${p.sku || p.name}</option>`).join('');
+  if (curSku) skuSel.value = curSku;
+  skuSel.onchange = () => acctRenderSalesTab();
+
+  const range = parseInt(rangeSel.value) || 90;
+  const metric = metricSel.value || 'units';
+  const productIds = products.map(p => p.id);
+  const sales = await acctLoadDailySales(productIds, range);
+  _acctCache.dailySales = sales;
+
+  if (sales.length === 0) {
+    empty.style.display = 'block';
+    chartWrap.style.display = 'none';
+    stats.innerHTML = '';
+    return;
+  }
+  empty.style.display = 'none';
+  chartWrap.style.display = 'block';
+
+  const filteredSales = (skuSel.value === '__all__') ? sales : sales.filter(s => s.product_id === skuSel.value);
+
+  // Bucket by date
+  const byDate = {};
+  filteredSales.forEach(s => {
+    if (!byDate[s.sale_date]) byDate[s.sale_date] = { units: 0, revenue: 0 };
+    byDate[s.sale_date].units += (s.units_sold || 0);
+    byDate[s.sale_date].revenue += parseFloat(s.revenue || 0);
+  });
+  const labels = Object.keys(byDate).sort();
+  const values = labels.map(l => metric === 'revenue' ? byDate[l].revenue : byDate[l].units);
+
+  const totalUnits = filteredSales.reduce((a,s) => a+(s.units_sold||0), 0);
+  const totalRev = filteredSales.reduce((a,s) => a+parseFloat(s.revenue||0), 0);
+  const totalAds = filteredSales.reduce((a,s) => a+parseFloat(s.ad_spend||0), 0);
+  const avgDay = values.length ? values.reduce((a,b)=>a+b,0)/values.length : 0;
+  stats.innerHTML = `
+    <div class="acct-stat-card"><div class="acct-stat-label">Units Sold</div><div class="acct-stat-value">${totalUnits.toLocaleString()}</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Revenue</div><div class="acct-stat-value">$${Math.round(totalRev).toLocaleString()}</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Ad Spend</div><div class="acct-stat-value">$${Math.round(totalAds).toLocaleString()}</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Avg/Day</div><div class="acct-stat-value">${metric === 'revenue' ? '$'+Math.round(avgDay).toLocaleString() : avgDay.toFixed(1)}</div></div>
+  `;
+
+  const canvas = document.getElementById('acctSalesChart');
+  if (_acctCache.salesChart) { try { _acctCache.salesChart.destroy(); } catch(e){} }
+  _acctCache.salesChart = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets: [{
+      label: metric === 'revenue' ? 'Revenue ($)' : 'Units Sold',
+      data: values,
+      borderColor: '#6b8fff',
+      backgroundColor: 'rgba(107,143,255,0.14)',
+      fill: true,
+      tension: 0.28,
+      pointRadius: 2,
+      pointHoverRadius: 5,
+      borderWidth: 2,
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { backgroundColor: '#0e0e12', titleColor: '#e8e9f0', bodyColor: '#e8e9f0', borderColor: '#6b8fff', borderWidth: 1, padding: 10, displayColors: false, callbacks: { label: ctx => metric === 'revenue' ? '$' + ctx.parsed.y.toFixed(2) : ctx.parsed.y + ' units' } },
+      },
+      scales: {
+        x: { ticks: { color: '#a0a2b0', font: { family: 'DM Mono', size: 9 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#a0a2b0', font: { family: 'DM Mono', size: 9 } }, grid: { color: 'rgba(255,255,255,0.06)' }, beginAtZero: true },
+      },
+    },
+  });
+
+  // Notes overlay
+  const notesDiv = document.getElementById('acctNotesOverlay');
+  try {
+    const log = await acctLoadNotesLog();
+    const myLog = log[brand] || [];
+    if (myLog.length === 0) notesDiv.innerHTML = 'No dated notes yet. Add them from the Overview tab.';
+    else notesDiv.innerHTML = myLog.slice(-10).reverse().map(n => `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)"><span style="color:var(--accent)">${n.date}</span> — ${(n.note||'').slice(0,140)}</div>`).join('');
+  } catch(e) { notesDiv.innerHTML = ''; }
+}
+
+async function acctAddManualSale() {
+  const brand = _acctActiveBrand;
+  const accountId = await acctEnsureAccount(brand);
+  if (!accountId) return;
+  const products = _acctCache.products.length ? _acctCache.products : await acctLoadProducts(accountId);
+  if (products.length === 0) { alert('No products yet. Seed products from the Inventory tab first.'); return; }
+  const skuOpts = products.map((p, i) => `${i+1}. ${p.sku || p.name}`).join('\n');
+  const idx = prompt('Which SKU? Enter number:\n' + skuOpts);
+  if (!idx) return;
+  const p = products[parseInt(idx)-1]; if (!p) return alert('Invalid selection');
+  const date = prompt('Date (YYYY-MM-DD)?', new Date().toISOString().slice(0,10));
+  if (!date) return;
+  const units = parseInt(prompt('Units sold?', '0')) || 0;
+  const revenue = parseFloat(prompt('Revenue ($)?', '0')) || 0;
+  const ads = parseFloat(prompt('Ad spend ($)?', '0')) || 0;
+  const sb = window.angoraSupabase;
+  const { error } = await sb.from('angora_daily_sales').upsert({ product_id: p.id, sale_date: date, units_sold: units, revenue, ad_spend: ads, source: 'manual' }, { onConflict: 'product_id,sale_date' });
+  if (error) return alert('Save failed: ' + error.message);
+  acctRenderSalesTab();
+}
+
+async function acctUploadPdf() {
+  alert('PDF upload — coming in the next deploy (queued).');
+}
+
+// ── ECONOMICS TAB ─────────────────────────────────────────────────────────
+async function acctRenderEconomicsTab() {
+  const brand = _acctActiveBrand;
+  const accountId = await acctEnsureAccount(brand);
+  if (!accountId) return;
+  const products = _acctCache.products.length ? _acctCache.products : await acctLoadProducts(accountId);
+  _acctCache.products = products;
+  const tbody = document.getElementById('acctEconTbody');
+  const tfoot = document.getElementById('acctEconTfoot');
+  const empty = document.getElementById('acctEconEmpty');
+  const summary = document.getElementById('acctEconSummary');
+  const range = parseInt(document.getElementById('acctEconRange').value) || 30;
+  if (products.length === 0) { tbody.innerHTML = ''; empty.style.display = 'block'; summary.innerHTML = ''; return; }
+  const productIds = products.map(p => p.id);
+  const sales = await acctLoadDailySales(productIds, range);
+  if (sales.length === 0) { tbody.innerHTML = ''; empty.style.display = 'block'; summary.innerHTML = ''; tfoot.innerHTML = ''; return; }
+  empty.style.display = 'none';
+
+  // Group sales by product
+  const byProd = {};
+  products.forEach(p => { byProd[p.id] = { units: 0, netRev: 0, fba: 0, referral: 0, cogs: 0, pandp: 0, ads: 0, product: p }; });
+  sales.forEach(s => {
+    const g = byProd[s.product_id]; if (!g) return;
+    const u = s.units_sold || 0; const r = parseFloat(s.revenue) || 0;
+    g.units += u;
+    const refPct = (g.product.referral_fee_pct || 15) / 100;
+    const fbaPerUnit = g.product.fba_fee_manual || 0;
+    const cogsPerUnit = g.product.cogs || 0;
+    g.netRev += r;
+    g.referral += r * refPct;
+    g.fba += u * fbaPerUnit;
+    g.cogs += u * cogsPerUnit;
+    g.pandp += parseFloat(s.other_fees || 0);
+    g.ads += parseFloat(s.ad_spend || 0);
+  });
+
+  let totU=0, totRev=0, totFba=0, totRef=0, totCogs=0, totPp=0, totAds=0, totNet=0;
+  const rows = Object.values(byProd).filter(g => g.units > 0).sort((a,b) => b.netRev - a.netRev).map(g => {
+    const net = g.netRev - g.fba - g.referral - g.cogs - g.pandp - g.ads;
+    const margin = g.netRev > 0 ? (net / g.netRev * 100) : 0;
+    totU += g.units; totRev += g.netRev; totFba += g.fba; totRef += g.referral; totCogs += g.cogs; totPp += g.pandp; totAds += g.ads; totNet += net;
+    const marginClass = margin >= 20 ? 'acct-pill-ok' : (margin >= 10 ? 'acct-pill-warn' : 'acct-pill-danger');
+    return `<tr>
+      <td style="font-weight:700">${g.product.sku || '—'}</td>
+      <td style="text-align:right">${g.units.toLocaleString()}</td>
+      <td style="text-align:right">$${g.netRev.toFixed(0)}</td>
+      <td style="text-align:right;color:#ffb8c6">-$${g.fba.toFixed(0)}</td>
+      <td style="text-align:right;color:#ffb8c6">-$${g.referral.toFixed(0)}</td>
+      <td style="text-align:right;color:#ffb8c6">-$${g.cogs.toFixed(0)}</td>
+      <td style="text-align:right;color:#ffb8c6">-$${g.pandp.toFixed(0)}</td>
+      <td style="text-align:right;color:#ffb8c6">-$${g.ads.toFixed(0)}</td>
+      <td style="text-align:right;font-weight:700;color:${net>=0?'#4dffb4':'#ff4d6d'}">$${net.toFixed(0)}</td>
+      <td style="text-align:right"><span class="${marginClass}">${margin.toFixed(0)}%</span></td>
+    </tr>`;
+  }).join('');
+  tbody.innerHTML = rows || '<tr><td colspan="10" style="padding:20px;text-align:center;color:#a0a2b0">No sales in the selected period.</td></tr>';
+  const totMargin = totRev > 0 ? (totNet / totRev * 100) : 0;
+  tfoot.innerHTML = `<tr style="border-top:2px solid var(--border)"><td style="font-weight:700;color:var(--accent)">TOTAL</td><td style="text-align:right;font-weight:700">${totU.toLocaleString()}</td><td style="text-align:right;font-weight:700">$${totRev.toFixed(0)}</td><td style="text-align:right">-$${totFba.toFixed(0)}</td><td style="text-align:right">-$${totRef.toFixed(0)}</td><td style="text-align:right">-$${totCogs.toFixed(0)}</td><td style="text-align:right">-$${totPp.toFixed(0)}</td><td style="text-align:right">-$${totAds.toFixed(0)}</td><td style="text-align:right;font-weight:700;color:${totNet>=0?'#4dffb4':'#ff4d6d'}">$${totNet.toFixed(0)}</td><td style="text-align:right;font-weight:700">${totMargin.toFixed(1)}%</td></tr>`;
+
+  summary.innerHTML = `
+    <div class="acct-stat-card"><div class="acct-stat-label">Net Revenue</div><div class="acct-stat-value">$${totRev.toFixed(0).toLocaleString()}</div><div class="acct-stat-sub">Last ${range} days</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Net Profit</div><div class="acct-stat-value" style="color:${totNet>=0?'#4dffb4':'#ff4d6d'}">$${totNet.toFixed(0).toLocaleString()}</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Blended Margin</div><div class="acct-stat-value">${totMargin.toFixed(1)}%</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Total Units</div><div class="acct-stat-value">${totU.toLocaleString()}</div></div>
+  `;
+}
+
+async function acctRecalcEconomics() { await acctRenderEconomicsTab(); }
+
+// ── MESSAGES TAB ──────────────────────────────────────────────────────────
+async function acctRenderMessagesTab() {
+  const brand = _acctActiveBrand;
+  const accountId = await acctEnsureAccount(brand);
+  const list = document.getElementById('acctMsgList');
+  const empty = document.getElementById('acctMsgEmpty');
+  if (!accountId) return;
+  const sb = window.angoraSupabase; if (!sb) return;
+  // Load or find thread
+  let { data: thread } = await sb.from('angora_message_threads').select('id').eq('account_id', accountId).limit(1);
+  let threadId = thread && thread[0] ? thread[0].id : null;
+  if (!threadId) {
+    const { data: userRes } = await sb.auth.getUser();
+    const userId = userRes && userRes.user ? userRes.user.id : null;
+    const { data: created } = await sb.from('angora_message_threads').insert({ account_id: accountId, subject: `${brand} — Partner chat`, created_by: userId }).select('id').single();
+    threadId = created ? created.id : null;
+  }
+  _acctCache.threadId = threadId;
+  if (!threadId) return;
+  const { data: msgs } = await sb.from('angora_messages').select('*').eq('thread_id', threadId).order('created_at');
+  _acctCache.messages = msgs || [];
+  if (!msgs || msgs.length === 0) { list.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  list.innerHTML = msgs.map(m => `<div style="padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:9px">
+    <div style="font-size:9px;color:var(--accent);margin-bottom:4px">${(m.sender_type||'garden').toUpperCase()} · ${new Date(m.created_at).toLocaleString()}</div>
+    <div style="font-size:11px;color:#e8e9f0;white-space:pre-wrap">${(m.content||'').replace(/</g,'&lt;')}</div>
+  </div>`).join('');
+  list.scrollTop = list.scrollHeight;
+}
+
+async function acctSendMessage() {
+  const input = document.getElementById('acctMsgInput');
+  const content = (input.value || '').trim(); if (!content) return;
+  const sb = window.angoraSupabase; if (!sb) return;
+  const { data: userRes } = await sb.auth.getUser();
+  const userId = userRes && userRes.user ? userRes.user.id : null;
+  const threadId = _acctCache.threadId; if (!threadId) return;
+  const { error } = await sb.from('angora_messages').insert({ thread_id: threadId, sender_id: userId, sender_type: 'garden', content });
+  if (error) return alert('Send failed: ' + error.message);
+  input.value = '';
+  acctRenderMessagesTab();
+}
+</script>
 
 <script src="js/auth.js"></script>
 
