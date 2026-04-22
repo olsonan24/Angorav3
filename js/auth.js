@@ -150,7 +150,11 @@
 
   function lockUI(locked) {
     if (!els.gate) return;
-    return; // NEVER show the login wall
+    els.gate.classList.toggle('open', !!locked);
+    els.gate.setAttribute('aria-hidden', locked ? 'false' : 'true');
+    // Lock scroll while gate is open
+    if (locked) document.body.style.overflow = 'hidden';
+    else document.body.style.overflow = '';
   }
 
   function updateHeader(user) {
@@ -707,7 +711,7 @@
       els.resetBackBtn.addEventListener('click', () => {
         state.recoveryMode = false;
         setView('login');
-        syncSession();
+        lockUI(true);
       });
     }
 
@@ -761,6 +765,22 @@
 
   attachEvents();
   setView('login');
-  lockUI(true);
-  syncSession();
+
+  // Real auth: check for an existing session. Lock UI if none, unlock if signed in.
+  (async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user || null;
+      applyAuthUI(user);
+      if (user) {
+        notifyAuthState('SESSION_SYNC', user);
+        lockUI(false);
+      } else {
+        lockUI(true);
+      }
+    } catch (e) {
+      console.warn('initial session check failed', e);
+      lockUI(true);
+    }
+  })();
 })();
