@@ -20005,23 +20005,73 @@ function acctReportsExtractTotals(type, rows) {
   const normalized = [];
   const totals = {};
   if (type === 'transactions') {
-    let revenue = 0, fees = 0, rebates = 0, other = 0, units = 0;
+    // Amazon has TWO shapes of Transaction / Payments report:
+    //   A) Date Range Report (richer):    columns include "Product sales", "FBA fees", "Selling fees",
+    //                                     "Other transaction fees", "Shipping credits", "Quantity"
+    //   B) Payments → Transaction View:   columns include "Total product charges", "Amazon fees",
+    //                                     "Total promotional rebates", "Other"
+    // Per Alex (04-22): revenue = sum of "Product sales", Amazon fees = "Selling fees" + "FBA fees".
+    // We support BOTH shapes and always normalize to { revenue, amazon_fees, ... }.
+    const hdr = rows[0] || {};
+    const isDateRange = ('Product sales' in hdr) || ('product sales' in hdr) || ('FBA fees' in hdr) || ('Selling fees' in hdr);
+    let revenue = 0, fees = 0, sellingFees = 0, fbaFees = 0, rebates = 0, other = 0, shipping = 0, units = 0;
     for (const r of rows) {
-      const status = (r['Transaction Status'] || r['Transaction status'] || '').toLowerCase();
-      const tType = (r['Transaction type'] || r['Transaction Type'] || '').toLowerCase();
-      if (tType && !tType.includes('order')) continue; // only order payments count toward revenue
-      const charges = acctReportsNum(r['Total product charges']);
-      const amazonFees = acctReportsNum(r['Amazon fees']);
-      const promo = acctReportsNum(r['Total promotional rebates']);
-      const oth = acctReportsNum(r['Other']);
-      revenue += charges;
-      fees += amazonFees; // usually negative
-      rebates += promo;
-      other += oth;
-      units += 1; // one order payment = one unit approx (Amazon's raw Transaction View doesn't expose qty)
-      normalized.push({ date: r['Date'], order_id: r['Order ID'], charges, amazon_fees: amazonFees, promo: promo, other: oth });
+      const tType = (r['Transaction type'] || r['Transaction Type'] || r['type'] || '').toLowerCase();
+      // on Date-Range reports, we keep rows where type is order-like OR when there is no type column
+      if (tType && !tType.includes('order') && !isDateRange) continue;
+      if (isDateRange) {
+        const ps    = acctReportsNum(r['Product sales']    ?? r['product sales']    ?? r['Product Sales']);
+        const ship  = acctReportsNum(r['Shipping credits'] ?? r['shipping credits'] ?? r['Shipping Credits']);
+        const prom  = acctReportsNum(r['Promotional rebates'] ?? r['promotional rebates'] ?? r['Total promotional rebates']);
+        const sell  = acctReportsNum(r['Selling fees']     ?? r['selling fees']     ?? r['Selling Fees']);
+        const fba   = acctReportsNum(r['FBA fees']         ?? r['fba fees']         ?? r['FBA Fees']);
+        const oth   = acctReportsNum(r['Other transaction fees'] ?? r['Other']       ?? r['other transaction fees']);
+        const qty   = acctReportsNum(r['Quantity']         ?? r['quantity']         ?? r['Units']);
+        revenue     += ps;
+        shipping    += ship;
+        rebates     += prom;
+        sellingFees += sell;
+        fbaFees     += fba;
+        other       += oth;
+        units       += qty;
+        normalized.push({
+          date: r['Date'] || r['date'] || r['Month'] || r['month'],
+          order_id: r['Order ID'] || r['order id'] || '',
+          sku: r['SKU'] || r['sku'] || '',
+          asin: r['ASIN'] || r['asin'] || '',
+          product_sales: ps, shipping_credits: ship, promo: prom,
+          selling_fees: sell, fba_fees: fba, other: oth, quantity: qty,
+        });
+      } else {
+        const charges    = acctReportsNum(r['Total product charges']);
+        const amazonFees = acctReportsNum(r['Amazon fees']);
+        const promo      = acctReportsNum(r['Total promotional rebates']);
+        const oth        = acctReportsNum(r['Other']);
+        revenue += charges;
+        fees    += amazonFees; // usually negative
+        rebates += promo;
+        other   += oth;
+        units   += 1;
+        normalized.push({
+          date: r['Date'], order_id: r['Order ID'], charges,
+          amazon_fees: amazonFees, promo: promo, other: oth,
+        });
+      }
     }
-    Object.assign(totals, { revenue, amazon_fees: Math.abs(fees), promo_rebates: rebates, other, units });
+    const amazonFeesTotal = isDateRange
+      ? Math.abs(sellingFees) + Math.abs(fbaFees)  // per Alex: Selling fees + FBA fees
+      : Math.abs(fees);
+    Object.assign(totals, {
+      revenue,
+      amazon_fees: amazonFeesTotal,
+      selling_fees: Math.abs(sellingFees),
+      fba_fees: Math.abs(fbaFees),
+      shipping_credits: shipping,
+      promo_rebates: rebates,
+      other,
+      units,
+      report_shape: isDateRange ? 'date_range' : 'transaction_view',
+    });
   } else if (type === 'inbound_placement') {
     let placement = 0;
     for (const r of rows) {
