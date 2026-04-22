@@ -18590,8 +18590,26 @@ async function acctDashRender(accountId, rangeSales, products, rangeDays, groupi
   //    Gross - amazon fees - placement - storage - aged - 5% - ads
   const angora5 = totalRev * 0.05;
   let amazonFees = reportTotals.amazon_fees || 0;
-  // If no transaction reports uploaded, fall back to fba_fees from daily sales
+  // Fallback 1: fba_fees column summed from daily sales (rare — not usually populated)
   if (!amazonFees && totalFbaFees) amazonFees = totalFbaFees;
+  // Fallback 2: compute the SAME way the Economics tab does — per-product fba_fee_manual (or auto)
+  // times units, plus referral_fee_pct times revenue. This makes the dashboard consistent with the
+  // Economics tab even when no Transaction Report has been uploaded for the range.
+  if (!amazonFees) {
+    const prodById = {}; products.forEach(p => { prodById[p.id] = p; });
+    let fbaPart = 0, refPart = 0;
+    rangeSales.forEach(s => {
+      const p = prodById[s.product_id]; if (!p) return;
+      const u = s.units_sold || 0;
+      const r = parseFloat(s.revenue) || 0;
+      const refPct = (p.referral_fee_pct ?? 15) / 100;
+      // inline the same precedence acctFbaPerUnit uses (manual > auto > 0)
+      const fpu = typeof acctFbaPerUnit === 'function' ? acctFbaPerUnit(p).fee : (parseFloat(p.fba_fee_manual) || 0);
+      fbaPart += u * fpu;
+      refPart += r * refPct;
+    });
+    amazonFees = fbaPart + refPart;
+  }
   const netProfit = totalRev
     - amazonFees
     - (reportTotals.placement_fee||0)
