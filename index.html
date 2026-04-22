@@ -18312,6 +18312,16 @@ async function acctRenderSalesTab() {
     byBucket[k].ads     += parseFloat(s.ad_spend || 0);
     byBucket[k].days.add(s.sale_date);
   });
+  // Fill zero-value buckets so the chart spans the full range, not just days with sales.
+  const today = new Date(); today.setHours(0,0,0,0);
+  const rangeStart = new Date(today.getTime() - (range-1)*86400000);
+  const bucketCursor = new Date(rangeStart);
+  while (bucketCursor <= today) {
+    const iso = bucketCursor.toISOString().slice(0,10);
+    const k = bucketKey(iso, grouping);
+    if (!byBucket[k]) byBucket[k] = { units: 0, revenue: 0, ads: 0, days: new Set(), dateKey: k };
+    bucketCursor.setDate(bucketCursor.getDate() + 1);
+  }
   const sortedKeys = Object.keys(byBucket).sort();
   const labels = sortedKeys.map(k => bucketLabel(k, grouping));
   const values = sortedKeys.map(k => {
@@ -18344,14 +18354,24 @@ async function acctRenderSalesTab() {
   gradient.addColorStop(0, 'rgba(107,143,255,0.55)');
   gradient.addColorStop(1, 'rgba(107,143,255,0.02)');
 
+  // Per-bar vertical gradient (accent purple → cyan at the cap) for a modern,
+  // futuristic feel. Empty buckets render as a faint tick so the full range is visible.
   const barColor = (c) => {
-    const i = c.dataIndex; const v = c.dataset.data[i] || 0; const max = Math.max(...c.dataset.data);
-    const t = max > 0 ? v / max : 0;
-    // Interpolate between accent blue and cyan for "hotter" bars
-    const r = Math.round(107 + (77 - 107) * t);
-    const g = Math.round(143 + (255 - 143) * t);
-    const b = Math.round(255 + (180 - 255) * t);
-    return `rgba(${r},${g},${b},0.88)`;
+    const i = c.dataIndex;
+    const data = c.dataset.data;
+    const v = data[i] || 0;
+    const max = Math.max(1, ...data);
+    if (v === 0) return 'rgba(255,255,255,0.04)'; // subtle placeholder for zero days
+    const t = v / max;
+    const chart = c.chart;
+    const area = chart.chartArea;
+    if (!area) return 'rgba(107,143,255,0.85)';
+    const g = chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+    // Hot bars (high t) → cyan top, magenta bottom. Cool bars → blue top.
+    g.addColorStop(0,   `rgba(${Math.round(120+80*t)},${Math.round(230*Math.min(1,0.6+t*0.5))},255,0.95)`);
+    g.addColorStop(0.55,`rgba(${Math.round(107+60*t)},${Math.round(143+60*t)},255,0.85)`);
+    g.addColorStop(1,   `rgba(${Math.round(167-40*t)},${Math.round(139-40*t)},250,0.25)`);
+    return g;
   };
 
   const isBar  = chartType === 'bar';
@@ -18363,7 +18383,7 @@ async function acctRenderSalesTab() {
     data: values,
   };
 
-  const dsBar = { ...dsBase, backgroundColor: (c) => barColor(c), borderRadius: 8, borderSkipped: false, hoverBackgroundColor: '#8faaff', maxBarThickness: 60 };
+  const dsBar = { ...dsBase, backgroundColor: (c) => barColor(c), borderRadius: 3, borderSkipped: false, hoverBackgroundColor: 'rgba(143,178,255,0.95)', maxBarThickness: 18, categoryPercentage: 0.95, barPercentage: 0.86 };
   const dsLine = { ...dsBase, borderColor: '#6b8fff', backgroundColor: 'rgba(107,143,255,0.08)', fill: false, tension: 0.32, pointRadius: 3, pointHoverRadius: 7, pointBackgroundColor: '#6b8fff', pointBorderColor: '#fff', pointBorderWidth: 2, borderWidth: 2.5 };
   const dsArea = { ...dsLine, fill: true, backgroundColor: gradient };
 
