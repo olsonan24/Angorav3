@@ -14153,23 +14153,64 @@ async function acctProfileOpen(brand, specialist) {
   if (dot) { dot.style.background = col.border; dot.style.boxShadow = `0 0 10px ${col.border}`; }
 
   // Load and populate contact fields
+  // PRIMARY source: angora_accounts row in Supabase (shared with partner app).
+  // FALLBACK/MIGRATION: legacy window.storage profiles keyed by brand name
+  //   — auto-migrated into Supabase the first time a row is opened so no
+  //   one loses data when they switch machines / browsers.
   try {
-    const profiles = await acctLoadProfiles();
-    const p = profiles[brand] || {};
-    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
-    set('acctContactName', p.contactName);
-    set('acctEmail',      p.email);
-    set('acctPhone',      p.phone);
-    set('acctSpecialist', p.specialist || specialist);
-    set('acctPSM',        p.psm);
-    set('acctPSMEmail',   p.psmEmail);
-    set('acctSince',      p.since);
-    set('acctNotes',      p.notes);
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val == null ? '' : val; };
+
+    // Always try to load legacy profile too, for migration
+    const legacy = (await acctLoadProfiles())[brand] || {};
+
+    // Get or create the Supabase account row, then pull contact fields
+    const sb = window.angoraSupabase;
+    const accountId = await acctEnsureAccount(brand);
+    let row = null;
+    if (sb && accountId) {
+      const { data, error } = await sb.from('angora_accounts')
+        .select('contact_name,contact_email,contact_phone,ops_specialist,psm_name,psm_email,account_since,audit_days,account_notes')
+        .eq('id', accountId).single();
+      if (!error) row = data;
+    }
+
+    // If Supabase row is empty AND we have legacy data, migrate it up ONCE.
+    const hasSbData = row && (row.contact_name || row.contact_email || row.psm_email || row.account_notes);
+    const hasLegacy = legacy.contactName || legacy.email || legacy.psmEmail || legacy.notes || (legacy.auditDays && legacy.auditDays.length);
+    if (sb && accountId && !hasSbData && hasLegacy) {
+      const migrated = {
+        contact_name:   legacy.contactName || null,
+        contact_email:  legacy.email       || null,
+        contact_phone:  legacy.phone       || null,
+        ops_specialist: legacy.specialist  || specialist || null,
+        psm_name:       legacy.psm         || null,
+        psm_email:      legacy.psmEmail    || null,
+        account_since:  legacy.since       || null,
+        audit_days:     legacy.auditDays   || [],
+        account_notes:  legacy.notes       || null,
+      };
+      const { data: after, error: upErr } = await sb.from('angora_accounts').update(migrated).eq('id', accountId)
+        .select('contact_name,contact_email,contact_phone,ops_specialist,psm_name,psm_email,account_since,audit_days,account_notes').single();
+      if (!upErr && after) row = after;
+      else console.warn('Legacy profile migration failed:', upErr);
+    }
+
+    // Final fallback to legacy if Supabase returned nothing at all
+    const eff = row || {};
+    set('acctContactName', eff.contact_name    || legacy.contactName || '');
+    set('acctEmail',       eff.contact_email   || legacy.email       || '');
+    set('acctPhone',       eff.contact_phone   || legacy.phone       || '');
+    set('acctSpecialist',  eff.ops_specialist  || legacy.specialist  || specialist || '');
+    set('acctPSM',         eff.psm_name        || legacy.psm         || '');
+    set('acctPSMEmail',    eff.psm_email       || legacy.psmEmail    || '');
+    set('acctSince',       eff.account_since   || legacy.since       || '');
+    set('acctNotes',       eff.account_notes   || legacy.notes       || '');
     const statusEl = document.getElementById('acctSaveStatus');
     if (statusEl) statusEl.style.opacity = '0';
 
-    // Load audit days
-    await acctLoadAuditDays(brand, p.auditDays || null);
+    // Load audit days (prefer Supabase value)
+    const auditDays = (eff.audit_days && eff.audit_days.length ? eff.audit_days : null) || legacy.auditDays || null;
+    await acctLoadAuditDays(brand, auditDays);
   } catch(e) { console.error('acctProfileOpen: profile load error', e); }
 
   // Load products
@@ -14203,8 +14244,7 @@ function acctAutoSave() {
 
 async function acctSaveNow() {
   if (!_acctActiveBrand) return;
-  const profiles = await acctLoadProfiles();
-  profiles[_acctActiveBrand] = {
+  const data = {
     contactName: document.getElementById('acctContactName')?.value.trim() || '',
     email:      document.getElementById('acctEmail').value.trim(),
     phone:      document.getElementById('acctPhone').value.trim(),
@@ -14216,7 +14256,29 @@ async function acctSaveNow() {
     auditDays:  acctGetSelectedDays(),
     updatedAt:  new Date().toISOString(),
   };
+  // 1) Mirror to legacy window.storage so notes log and other local flows keep working
+  const profiles = await acctLoadProfiles();
+  profiles[_acctActiveBrand] = data;
   await acctSaveProfiles(profiles);
+  // 2) PRIMARY: persist to Supabase angora_accounts so partner app + every browser sees it
+  try {
+    const sb = window.angoraSupabase;
+    const accountId = await acctEnsureAccount(_acctActiveBrand);
+    if (sb && accountId) {
+      const { error } = await sb.from('angora_accounts').update({
+        contact_name:   data.contactName || null,
+        contact_email:  data.email       || null,
+        contact_phone:  data.phone       || null,
+        ops_specialist: data.specialist  || null,
+        psm_name:       data.psm         || null,
+        psm_email:      data.psmEmail    || null,
+        account_since:  data.since       || null,
+        audit_days:     data.auditDays   || [],
+        account_notes:  data.notes       || null,
+      }).eq('id', accountId);
+      if (error) console.warn('acctSaveNow: supabase update err', error);
+    }
+  } catch(e) { console.warn('acctSaveNow supabase err', e); }
   // Flash save indicator
   const el = document.getElementById('acctSaveStatus');
   if (el) {
