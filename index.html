@@ -84,6 +84,23 @@
   .acct-section-title { font-family:'DM Mono',monospace; font-size:9px; text-transform:uppercase; letter-spacing:2.5px; color:#e8e9f0; opacity:0.85; margin-bottom:14px; }
   .acct-stat-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:10px; }
   .acct-stat-card { background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:12px 14px; }
+  /* ─── Command-Center dashboard (Sales tab) ─── */
+  .acct-dash-range { background:none; border:none; color:var(--muted); font-family:'DM Mono',monospace; font-size:10px; letter-spacing:1px; padding:6px 12px; border-radius:8px; cursor:pointer; transition:all 0.15s; }
+  .acct-dash-range:hover { color:var(--text); }
+  .acct-dash-range.active { background:linear-gradient(135deg,var(--accent),var(--accent2,#7c3aed)); color:#fff; font-weight:700; box-shadow:0 2px 10px rgba(167,139,250,0.35); }
+  .acct-kpi-card { background:linear-gradient(135deg,var(--surface2),rgba(26,27,36,0.55)); border:1px solid var(--border); border-radius:14px; padding:14px 16px; position:relative; overflow:hidden; min-height:96px; }
+  .acct-kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,var(--accent),transparent); opacity:0.5; }
+  .acct-kpi-card:hover::before { opacity:1; }
+  .acct-kpi-label { font-family:'DM Mono',monospace; font-size:8.5px; text-transform:uppercase; letter-spacing:1.8px; color:var(--muted); margin-bottom:6px; display:flex; align-items:center; justify-content:space-between; gap:6px; }
+  .acct-kpi-value { font-family:'Syne',sans-serif; font-size:22px; font-weight:700; color:var(--text); line-height:1.1; }
+  .acct-kpi-delta { font-family:'DM Mono',monospace; font-size:10px; margin-top:4px; display:flex; align-items:center; gap:4px; }
+  .acct-kpi-delta.up { color:#4ade80; }
+  .acct-kpi-delta.down { color:#f87171; }
+  .acct-kpi-delta.flat { color:var(--muted); }
+  .acct-kpi-spark { position:absolute; bottom:0; right:0; left:0; height:28px; opacity:0.45; pointer-events:none; }
+  .acct-alert-chip { background:linear-gradient(135deg,rgba(248,113,113,0.12),rgba(248,113,113,0.03)); border:1px solid rgba(248,113,113,0.3); border-radius:10px; padding:10px 14px; display:flex; align-items:center; gap:10px; font-family:'DM Mono',monospace; font-size:10px; color:var(--text); }
+  .acct-alert-chip.warn { background:linear-gradient(135deg,rgba(251,191,36,0.12),rgba(251,191,36,0.03)); border-color:rgba(251,191,36,0.3); }
+  .acct-alert-chip.info { background:linear-gradient(135deg,rgba(74,222,128,0.1),rgba(74,222,128,0.03)); border-color:rgba(74,222,128,0.3); }
   .acct-stat-label { font-family:'DM Mono',monospace; font-size:8px; text-transform:uppercase; letter-spacing:1.5px; color:#a0a2b0; margin-bottom:6px; }
   .acct-stat-value { font-family:'Syne',sans-serif; font-size:22px; font-weight:700; color:#e8e9f0; }
   .acct-stat-sub { font-family:'DM Mono',monospace; font-size:9px; color:#a0a2b0; margin-top:4px; }
@@ -17264,6 +17281,7 @@ window.calDeleteAudit = async function() {
       <button class="acct-tab" data-tab="orders" onclick="acctSwitchTab('orders')">Orders</button>
       <button class="acct-tab" data-tab="notes" onclick="acctSwitchTab('notes')">Notes</button>
       <button class="acct-tab" data-tab="messages" onclick="acctSwitchTab('messages')">Messages</button>
+      <button class="acct-tab" data-tab="reports" onclick="acctSwitchTab('reports')">Reports</button>
     </div>
 
     <!-- Scrollable body -->
@@ -17352,49 +17370,91 @@ window.calDeleteAudit = async function() {
 
       </div><!-- /overview panel -->
 
-      <!-- SALES TAB -->
+      <!-- SALES TAB — command center dashboard -->
       <div class="acct-tab-panel" data-tabpanel="sales" id="acctPanelSales">
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
-          <div class="acct-section-title">Daily Sales</div>
-          <div class="acct-filter-row">
+
+        <!-- Reorder + stockout alerts -->
+        <div id="acctDashAlerts" style="display:none;flex-direction:column;gap:8px"></div>
+
+        <!-- Hero KPI strip -->
+        <div id="acctDashKpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px"></div>
+
+        <!-- Main chart card -->
+        <div style="background:linear-gradient(180deg,var(--surface) 0%,rgba(14,14,18,0.55) 100%);border:1px solid var(--border);border-radius:16px;padding:22px;position:relative;overflow:hidden">
+          <!-- Subtle grid pattern -->
+          <div style="position:absolute;inset:0;background-image:radial-gradient(circle at 1px 1px,rgba(167,139,250,0.06) 1px,transparent 0);background-size:22px 22px;pointer-events:none"></div>
+          <div style="position:relative">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+            <div>
+              <div class="acct-section-title" style="margin-bottom:4px">Performance Over Time</div>
+              <div id="acctDashRangeLabel" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase">—</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:3px">
+              <button class="acct-dash-range" data-rng="7"   onclick="acctDashSetRange(7)">7D</button>
+              <button class="acct-dash-range" data-rng="30"  onclick="acctDashSetRange(30)">30D</button>
+              <button class="acct-dash-range active" data-rng="90"  onclick="acctDashSetRange(90)">90D</button>
+              <button class="acct-dash-range" data-rng="180" onclick="acctDashSetRange(180)">6M</button>
+              <button class="acct-dash-range" data-rng="365" onclick="acctDashSetRange(365)">1Y</button>
+            </div>
+          </div>
+          <div class="acct-filter-row" style="margin-bottom:12px">
             <label style="font-size:9px;color:#a0a2b0;text-transform:uppercase;letter-spacing:1px">SKU:</label>
             <select id="acctSalesSku"><option value="__all__">All SKUs</option></select>
-            <label style="font-size:9px;color:#a0a2b0;text-transform:uppercase;letter-spacing:1px">Range:</label>
-            <select id="acctSalesRange" onchange="acctRenderSalesTab()">
-              <option value="30">Last 30 days</option>
-              <option value="90" selected>Last 90 days</option>
-              <option value="180">Last 6 months</option>
-              <option value="365">Last year</option>
+            <!-- hidden legacy select (kept for back-compat with helper that reads .value) -->
+            <select id="acctSalesRange" onchange="acctRenderSalesTab()" style="display:none">
+              <option value="7">7</option><option value="30">30</option><option value="90" selected>90</option><option value="180">180</option><option value="365">365</option>
             </select>
             <label style="font-size:9px;color:#a0a2b0;text-transform:uppercase;letter-spacing:1px">Metric:</label>
             <select id="acctSalesMetric" onchange="acctRenderSalesTab()">
-              <option value="units" selected>Units sold</option>
-              <option value="revenue">Revenue ($)</option>
+              <option value="revenue" selected>Revenue ($)</option>
+              <option value="units">Units sold</option>
+              <option value="net_profit">Net Profit ($)</option>
             </select>
             <label style="font-size:9px;color:#a0a2b0;text-transform:uppercase;letter-spacing:1px">Group:</label>
             <select id="acctSalesGrouping" onchange="acctRenderSalesTab()">
               <option value="day">Daily</option>
               <option value="week" selected>Weekly</option>
               <option value="month">Monthly</option>
+              <option value="quarter">Quarterly</option>
               <option value="year">Yearly</option>
             </select>
             <label style="font-size:9px;color:#a0a2b0;text-transform:uppercase;letter-spacing:1px">Chart:</label>
             <select id="acctSalesChartType" onchange="acctRenderSalesTab()">
-              <option value="bar" selected>Bars</option>
+              <option value="bar" selected>Bars + Line</option>
               <option value="line">Line</option>
               <option value="area">Area</option>
             </select>
+            <label style="font-size:9px;color:#a0a2b0;text-transform:uppercase;letter-spacing:1px;display:flex;align-items:center;gap:4px;cursor:pointer">
+              <input type="checkbox" id="acctSalesForecast" onchange="acctRenderSalesTab()" style="cursor:pointer"> Forecast
+            </label>
             <button class="acct-save-btn" onclick="acctAddManualSale()" style="margin-left:auto">+ Manual Entry</button>
-            <button class="acct-save-btn" onclick="acctUploadReport()">\u2b06 Upload Amazon PDF / CSV</button>
+            <button class="acct-save-btn" onclick="acctUploadReport()">⬆ Upload Amazon PDF / CSV</button>
           </div>
-          <div class="acct-stat-grid" id="acctSalesStats"></div>
-          <div class="acct-chart-wrap"><canvas id="acctSalesChart"></canvas></div>
+          <div class="acct-stat-grid" id="acctSalesStats" style="display:none"></div>
+          <div class="acct-chart-wrap" style="height:340px;position:relative"><canvas id="acctSalesChart"></canvas></div>
           <div id="acctSalesEmpty" class="acct-empty" style="display:none">
             No sales data yet for this account.<br>
             <span class="acct-empty-action" onclick="acctAddManualSale()">Add sale manually</span>
             <span class="acct-empty-action" onclick="acctUploadReport()" style="margin-left:8px">Upload Amazon report (PDF/CSV)</span>
           </div>
+          </div>
         </div>
+
+        <!-- Fee-stack donut + Top SKUs -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
+            <div class="acct-section-title" style="margin-bottom:4px">Where The Money Goes</div>
+            <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px">Selected range · from Reports uploads</div>
+            <div style="height:220px;position:relative"><canvas id="acctDashFeeDonut"></canvas></div>
+            <div id="acctDashFeeLegend" style="margin-top:14px;display:flex;flex-direction:column;gap:6px;font-family:'DM Mono',monospace;font-size:10px"></div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
+            <div class="acct-section-title" style="margin-bottom:4px">Top SKUs</div>
+            <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px">Selected range · by revenue</div>
+            <div id="acctDashTopSkus" style="display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+        </div>
+
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
           <div class="acct-section-title">Notes on Timeline</div>
           <div id="acctNotesOverlay" style="font-size:10px;color:#a0a2b0;font-family:'DM Mono',monospace"></div>
@@ -17422,7 +17482,10 @@ window.calDeleteAudit = async function() {
                 <th style="text-align:right">Angora WH</th>
                 <th style="text-align:right">Reserved</th>
                 <th style="text-align:right">Wk Velocity</th>
+                <th style="text-align:right" title="Current FBA ÷ avg daily sales">Days Supply</th>
+                <th style="text-align:right" title="(avg daily × 60d lead time) + safety stock. Reorder when FBA drops to this level.">Reorder Pt</th>
                 <th style="text-align:right">Runway</th>
+                <th style="text-align:right" title="Estimated revenue lost while out of stock">Lost Sales</th>
                 <th>Status</th>
               </tr></thead>
               <tbody id="acctInvTbody"></tbody>
@@ -17538,6 +17601,27 @@ window.calDeleteAudit = async function() {
         </div>
       </div>
 
+      <!-- ══ REPORTS TAB — monthly CSV uploads + P&L rollup ══ -->
+      <div class="acct-tab-panel" data-tabpanel="reports" id="acctPanelReports">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <button class="acct-save-btn" onclick="acctReportsShiftMonth(-1)" style="padding:6px 10px">‹</button>
+              <div class="acct-section-title" id="acctReportsMonthLbl" style="margin-bottom:0;min-width:180px;text-align:center">—</div>
+              <button class="acct-save-btn" onclick="acctReportsShiftMonth(1)" style="padding:6px 10px">›</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">
+              <span>Uploaded files are saved to Supabase — PSMs never re-upload.</span>
+            </div>
+          </div>
+
+          <div id="acctReportsSlots" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px"></div>
+
+          <div class="acct-section-title" style="margin-top:24px;font-size:11px">Monthly P&amp;L (12-month rolling)</div>
+          <div id="acctReportsPnlTable" style="overflow-x:auto;margin-top:10px"></div>
+        </div>
+      </div>
+
     </div><!-- /scrollable body -->
   </div><!-- /panel -->
 </div><!-- /acctProfileOverlay -->
@@ -17564,6 +17648,7 @@ function acctSwitchTab(tab) {
   if (tab === 'notes')      acctRenderNotesTab();
   if (tab === 'economics')  acctRenderEconomicsTab();
   if (tab === 'messages')   acctRenderMessagesTab();
+  if (tab === 'reports')    acctRenderReportsTab();
 }
 
 async function acctEnsureAccount(brand) {
@@ -17661,7 +17746,7 @@ async function acctRenderInventoryTab() {
   const stats = document.getElementById('acctInvStats');
   const alerts = document.getElementById('acctInvAlerts');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="9" style="padding:20px;text-align:center;color:#a0a2b0">Loading…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="12" style="padding:20px;text-align:center;color:#a0a2b0">Loading…</td></tr>';
   const brand = _acctActiveBrand;
   const accountId = await acctEnsureAccount(brand);
   if (!accountId) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
@@ -17749,7 +17834,44 @@ async function acctRenderInventoryTab() {
     totalFba += lo.fba; totalAwd += lo.awd; totalAng += lo.angora; totalVel += vel;
     if (runwayNum < 4) dangerCount++;
     if (spike) spikeCount++;
-    const status = spike ? '<span class="acct-pill-warn">Spike</span>' : (runwayNum < 2 ? '<span class="acct-pill-danger">Out soon</span>' : (runwayNum < 4 ? '<span class="acct-pill-warn">Low</span>' : '<span class="acct-pill-ok">OK</span>'));
+
+    // ── Advanced inventory math (Reorder Point, Days of Supply, Lost Sales) ──
+    // Using probabilistic ROP: avgDaily * L + Z(1.65=95%) * σ * √L
+    // σ approximated as 30% of avgDaily (until we have enough data for stdev)
+    // Lead time default 60d — honors p.lead_time_days if the product row has one.
+    const avgDaily = vel / 7;
+    const leadTime = Number(p.lead_time_days) || 60;
+    const sigma = avgDaily * 0.3;
+    const safetyStock = 1.65 * sigma * Math.sqrt(leadTime);
+    const reorderPoint = avgDaily > 0 ? (avgDaily * leadTime + safetyStock) : 0;
+    const daysSupply = avgDaily > 0 ? (lo.fba / avgDaily) : Infinity;
+    let lostSalesUsd = 0;
+    if (lo.fba === 0 && vel > 0 && rows.length > 0) {
+      const sorted = rows.slice().sort((a,b) => b.sale_date.localeCompare(a.sale_date));
+      const lastSaleDate = new Date(sorted[0].sale_date + 'T00:00:00');
+      const daysOut = Math.min(30, Math.floor((Date.now() - lastSaleDate.getTime()) / 86400000));
+      if (daysOut > 0) {
+        const recent = sorted.slice(0, 7);
+        const recentU = recent.reduce((a,r) => a + (r.units_sold||0), 0);
+        const recentR = recent.reduce((a,r) => a + parseFloat(r.revenue||0), 0);
+        const asp = recentU > 0 ? recentR / recentU : 0;
+        lostSalesUsd = avgDaily * daysOut * asp;
+      }
+    }
+
+    const status = lo.fba === 0 && vel > 0 ? '<span class="acct-pill-danger">OOS</span>' :
+                   spike ? '<span class="acct-pill-warn">Spike</span>' :
+                   (runwayNum < 2 ? '<span class="acct-pill-danger">Out soon</span>' :
+                   (runwayNum < 4 ? '<span class="acct-pill-warn">Low</span>' :
+                   (lo.fba < reorderPoint && vel > 0 ? '<span class="acct-pill-warn">Reorder</span>' :
+                   '<span class="acct-pill-ok">OK</span>')));
+
+    const dsDisplay = !isFinite(daysSupply) ? '∞' : Math.round(daysSupply) + 'd';
+    const dsColor = daysSupply < 14 ? 'color:#f87171' : (daysSupply < 30 ? 'color:#fbbf24' : '');
+    const ropDisplay = reorderPoint > 0 ? Math.round(reorderPoint).toLocaleString() : '—';
+    const lostDisplay = lostSalesUsd > 0 ? ('$' + Math.round(lostSalesUsd).toLocaleString()) : '—';
+    const lostColor = lostSalesUsd > 0 ? 'color:#f87171;font-weight:700' : 'color:#666';
+
     return `<tr class="${rowClass}">
       <td style="font-weight:700"><a href="#" onclick="event.preventDefault();acctOpenProductEdit('${p.id}')" style="color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent)">${p.name || p.sku || '—'}</a></td>
       <td>${(p.name||'').replace(/</g,'&lt;').slice(0,40)}</td>
@@ -17758,7 +17880,10 @@ async function acctRenderInventoryTab() {
       <td style="text-align:right"><input type="number" min="0" value="${lo.angora}" data-pid="${p.id}" data-loc="angora" oninput="acctInvCellChange(this)"></td>
       <td style="text-align:right"><input type="number" min="0" value="${lo.other}" data-pid="${p.id}" data-loc="other" oninput="acctInvCellChange(this)"></td>
       <td style="text-align:right">${vel.toFixed(1)}/wk</td>
+      <td style="text-align:right;${dsColor}">${dsDisplay}</td>
+      <td style="text-align:right">${ropDisplay}</td>
       <td style="text-align:right;font-weight:700">${runway === '∞' ? '∞' : runway + 'w'}</td>
+      <td style="text-align:right;${lostColor}">${lostDisplay}</td>
       <td>${status}</td>
     </tr>`;
   }).join('');
@@ -18075,6 +18200,7 @@ async function acctRenderSalesTab() {
     const d = new Date(dateStr + 'T00:00:00');
     if (grp === 'day') return dateStr;
     if (grp === 'year') return String(d.getFullYear());
+    if (grp === 'quarter') { const q = Math.floor(d.getMonth()/3)+1; return d.getFullYear() + '-Q' + q; }
     if (grp === 'month') return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
     if (grp === 'week') {
       // ISO week = Monday-based
@@ -18089,6 +18215,7 @@ async function acctRenderSalesTab() {
     if (grp === 'day')   return new Date(key+'T00:00:00').toLocaleDateString([], { month:'short', day:'numeric' });
     if (grp === 'week')  return 'Wk of ' + new Date(key+'T00:00:00').toLocaleDateString([], { month:'short', day:'numeric' });
     if (grp === 'month') { const [y,m] = key.split('-'); return new Date(+y,+m-1,1).toLocaleDateString([], { month:'short', year:'2-digit' }); }
+    if (grp === 'quarter') return key;
     if (grp === 'year')  return key;
     return key;
   }
@@ -18104,7 +18231,13 @@ async function acctRenderSalesTab() {
   });
   const sortedKeys = Object.keys(byBucket).sort();
   const labels = sortedKeys.map(k => bucketLabel(k, grouping));
-  const values = sortedKeys.map(k => metric === 'revenue' ? byBucket[k].revenue : byBucket[k].units);
+  const values = sortedKeys.map(k => {
+    const b = byBucket[k];
+    if (metric === 'revenue')    return b.revenue;
+    if (metric === 'units')      return b.units;
+    if (metric === 'net_profit') return b.revenue * 0.68 - b.ads; // rough proxy; exact P&L is in Reports tab
+    return b.units;
+  });
 
   const totalUnits = filteredSales.reduce((a,s) => a+(s.units_sold||0), 0);
   const totalRev = filteredSales.reduce((a,s) => a+parseFloat(s.revenue||0), 0);
@@ -18143,7 +18276,7 @@ async function acctRenderSalesTab() {
   const isLine = chartType === 'line';
 
   const dsBase = {
-    label: metric === 'revenue' ? 'Revenue' : 'Units Sold',
+    label: metric === 'revenue' ? 'Revenue' : (metric === 'net_profit' ? 'Net Profit' : 'Units Sold'),
     data: values,
   };
 
@@ -18153,9 +18286,41 @@ async function acctRenderSalesTab() {
 
   const dataset = isBar ? dsBar : (isArea ? dsArea : dsLine);
 
+  // Optional: compute forecast and a secondary "trend" line on bar charts.
+  const datasets = [dataset];
+  // On bar view, always overlay a smoothed trend line for the same metric
+  if (isBar && values.length >= 3) {
+    const smooth = values.map((_,i) => {
+      const w = 3;
+      let sum=0, cnt=0;
+      for (let j=Math.max(0,i-Math.floor(w/2)); j<=Math.min(values.length-1, i+Math.floor(w/2)); j++) { sum+=values[j]; cnt++; }
+      return sum/cnt;
+    });
+    datasets.push({ type:'line', label:'Trend', data: smooth, borderColor:'rgba(96,165,250,0.9)', backgroundColor:'rgba(96,165,250,0.15)', fill:false, tension:0.35, pointRadius:0, borderWidth:2, borderDash:[], order:0 });
+  }
+  // Forecast toggle
+  const wantForecast = document.getElementById('acctSalesForecast')?.checked;
+  if (wantForecast && values.length >= 4) {
+    const steps = Math.max(4, Math.min(12, Math.floor(values.length * 0.4)));
+    const seasonLen = grouping === 'week' ? 4 : (grouping === 'day' ? 7 : (grouping === 'month' ? 3 : 0));
+    const fwd = acctDashForecast(values, steps, seasonLen);
+    // Pad historical with null, prepend last historical so line connects
+    const histNull = new Array(values.length - 1).fill(null);
+    const fcData = [...histNull, values[values.length-1], ...fwd];
+    // Pad existing datasets to match length
+    datasets.forEach(d => { if (Array.isArray(d.data)) d.data = [...d.data, ...new Array(steps).fill(null)]; });
+    // Extend labels
+    for (let k=1; k<=steps; k++) {
+      const lastKey = sortedKeys[sortedKeys.length-1];
+      const next = acctForecastNextLabel(lastKey, k, grouping);
+      labels.push(next);
+    }
+    datasets.push({ type:'line', label:'Forecast', data: fcData, borderColor:'#a78bfa', backgroundColor:'rgba(167,139,250,0.15)', borderDash:[6,4], fill:false, tension:0.3, pointRadius:3, pointBackgroundColor:'#a78bfa', pointBorderColor:'#fff', pointBorderWidth:1, borderWidth:2, order:-1 });
+  }
+
   _acctCache.salesChart = new Chart(canvas, {
     type: isBar ? 'bar' : 'line',
-    data: { labels, datasets: [dataset] },
+    data: { labels, datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
       animation: {
@@ -18225,6 +18390,345 @@ async function acctRenderSalesTab() {
     if (myLog.length === 0) notesDiv.innerHTML = 'No dated notes yet. Add them from the Overview tab.';
     else notesDiv.innerHTML = myLog.slice(-10).reverse().map(n => `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)"><span style="color:var(--accent)">${n.date}</span> — ${(n.note||'').slice(0,140)}</div>`).join('');
   } catch(e) { notesDiv.innerHTML = ''; }
+
+  // ─── COMMAND-CENTER DASHBOARD: KPI strip, reorder alerts, fee donut, top SKUs ───
+  try { await acctDashRender(accountId, filteredSales, products, range, grouping); } catch (e) { console.error('acctDashRender err', e); }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// COMMAND CENTER DASHBOARD — overlays the Sales tab with KPI cards, reorder
+// alerts, fee-stack donut, top SKUs, and an optional forecast line.
+// Pulls from: angora_daily_sales (selected range) + angora_report_uploads
+// (12-month window of CSV totals) + angora_inventory (current stock).
+// ═════════════════════════════════════════════════════════════════════════
+
+function acctDashSetRange(days) {
+  const sel = document.getElementById('acctSalesRange'); if (!sel) return;
+  sel.value = String(days);
+  document.querySelectorAll('.acct-dash-range').forEach(b => b.classList.toggle('active', +b.dataset.rng === days));
+  acctRenderSalesTab();
+}
+
+function acctDashFmtMoney(n, showZero) {
+  n = Number(n||0);
+  if (!n && !showZero) return '$—';
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return (n<0?'-':'') + '$' + (abs/1_000_000).toFixed(1) + 'M';
+  if (abs >= 1_000) return (n<0?'-':'') + '$' + (abs/1_000).toFixed(1) + 'K';
+  return (n<0?'-':'') + '$' + abs.toFixed(0);
+}
+function acctDashFmtInt(n) { return Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0}); }
+function acctDashFmtPct(n) {
+  if (!isFinite(n)) return '—';
+  return (n*100).toFixed(1) + '%';
+}
+
+// Simple exponential smoothing + weekly seasonality for "good enough" forecast.
+// Input: array of bucketed {key, value}. Returns N forward buckets.
+function acctDashForecast(values, steps, seasonLen) {
+  if (!values || values.length < 4) return new Array(steps).fill(null);
+  const alpha = 0.4, beta = 0.15, gamma = 0.3;
+  const season = seasonLen || 0;
+  let level = values[0], trend = (values[1]||values[0]) - values[0];
+  const seas = season ? new Array(season).fill(0) : null;
+  if (season) {
+    for (let i=0; i<season && i<values.length; i++) seas[i] = values[i] - level;
+  }
+  for (let t=1; t<values.length; t++) {
+    const s = season ? seas[(t-1) % season] : 0;
+    const newLevel = alpha * (values[t] - s) + (1-alpha) * (level + trend);
+    const newTrend = beta * (newLevel - level) + (1-beta) * trend;
+    if (season) seas[(t-1) % season] = gamma * (values[t] - newLevel) + (1-gamma) * s;
+    level = newLevel; trend = newTrend;
+  }
+  const out = [];
+  for (let k=1; k<=steps; k++) {
+    const s = season ? seas[(values.length + k - 1) % season] : 0;
+    out.push(Math.max(0, level + k*trend + s));
+  }
+  return out;
+}
+
+// Generate the next k label strings based on grouping.
+function acctForecastNextLabel(lastKey, k, grouping) {
+  if (grouping === 'day') {
+    const d = new Date(lastKey + 'T00:00:00'); d.setDate(d.getDate() + k);
+    return d.toLocaleDateString([], { month:'short', day:'numeric' });
+  }
+  if (grouping === 'week') {
+    const d = new Date(lastKey + 'T00:00:00'); d.setDate(d.getDate() + 7*k);
+    return 'Wk of ' + d.toLocaleDateString([], { month:'short', day:'numeric' });
+  }
+  if (grouping === 'month') {
+    const [y,m] = lastKey.split('-').map(Number);
+    const d = new Date(y, m-1+k, 1);
+    return d.toLocaleDateString([], { month:'short', year:'2-digit' });
+  }
+  if (grouping === 'quarter') {
+    const [y,q] = lastKey.split('-Q').map(Number);
+    const total = (y*4 + (q-1)) + k;
+    return Math.floor(total/4) + '-Q' + ((total%4)+1);
+  }
+  if (grouping === 'year') return String(Number(lastKey) + k);
+  return lastKey;
+}
+
+function acctDashTinySparkline(values, color) {
+  if (!values || values.length < 2) return '';
+  const w = 120, h = 28;
+  const min = Math.min(...values), max = Math.max(...values);
+  const rng = max - min || 1;
+  const pts = values.map((v,i) => {
+    const x = (i/(values.length-1)) * w;
+    const y = h - ((v - min)/rng) * h;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const last = values[values.length-1];
+  const lastY = h - ((last - min)/rng) * h;
+  return `<svg class="acct-kpi-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" points="${pts}"/><circle cx="${w}" cy="${lastY.toFixed(1)}" r="2" fill="${color}"/></svg>`;
+}
+
+function acctDashDeltaBadge(cur, prev) {
+  if (!prev || !isFinite(prev) || prev === 0) return '<span class="acct-kpi-delta flat">—</span>';
+  const d = (cur - prev) / Math.abs(prev);
+  const up = d > 0.01, down = d < -0.01;
+  const cls = up ? 'up' : (down ? 'down' : 'flat');
+  const arrow = up ? '▲' : (down ? '▼' : '◆');
+  return `<span class="acct-kpi-delta ${cls}">${arrow} ${Math.abs(d*100).toFixed(1)}% vs prev</span>`;
+}
+
+async function acctDashRender(accountId, rangeSales, products, rangeDays, grouping) {
+  // 1) Aggregate in-range sales
+  const totalUnits = rangeSales.reduce((a,s) => a + (s.units_sold||0), 0);
+  const totalRev   = rangeSales.reduce((a,s) => a + parseFloat(s.revenue||0), 0);
+  const totalAds   = rangeSales.reduce((a,s) => a + parseFloat(s.ad_spend||0), 0);
+  const totalFbaFees = rangeSales.reduce((a,s) => a + parseFloat(s.fba_fees||0), 0);
+  const aov = totalUnits > 0 ? totalRev / totalUnits : 0;
+  const tacos = totalRev > 0 ? totalAds / totalRev : 0;
+
+  // 2) Previous-period comparison
+  const prevSales = await acctLoadPreviousPeriodSales(products, rangeDays);
+  const prevUnits = prevSales.reduce((a,s) => a + (s.units_sold||0), 0);
+  const prevRev   = prevSales.reduce((a,s) => a + parseFloat(s.revenue||0), 0);
+  const prevAds   = prevSales.reduce((a,s) => a + parseFloat(s.ad_spend||0), 0);
+  const prevAov   = prevUnits > 0 ? prevRev/prevUnits : 0;
+  const prevTacos = prevRev > 0 ? prevAds/prevRev : 0;
+
+  // 3) Daily sparkline data (last ~30 days regardless of range) for KPI cards
+  const sparkBuckets = {};
+  rangeSales.forEach(s => {
+    sparkBuckets[s.sale_date] = sparkBuckets[s.sale_date] || { units:0, rev:0 };
+    sparkBuckets[s.sale_date].units += (s.units_sold||0);
+    sparkBuckets[s.sale_date].rev += parseFloat(s.revenue||0);
+  });
+  const sparkKeys = Object.keys(sparkBuckets).sort().slice(-30);
+  const sparkRev = sparkKeys.map(k => sparkBuckets[k].rev);
+  const sparkUnits = sparkKeys.map(k => sparkBuckets[k].units);
+
+  // 4) Pull monthly report uploads for extra P&L fees
+  const reportTotals = await acctDashLoadReportTotals(accountId, rangeDays);
+
+  // 5) Net Profit (use Reports if available, else approximate with 5% of revenue + ads)
+  //    Gross - amazon fees - placement - storage - aged - 5% - ads
+  const angora5 = totalRev * 0.05;
+  let amazonFees = reportTotals.amazon_fees || 0;
+  // If no transaction reports uploaded, fall back to fba_fees from daily sales
+  if (!amazonFees && totalFbaFees) amazonFees = totalFbaFees;
+  const netProfit = totalRev
+    - amazonFees
+    - (reportTotals.placement_fee||0)
+    - (reportTotals.storage_fee||0)
+    - (reportTotals.aged_fee||0)
+    - angora5
+    - totalAds;
+  const netMargin = totalRev > 0 ? netProfit/totalRev : 0;
+  const prevNet = prevRev * (netMargin || 0.0);
+
+  // 6) Inventory: compute Weeks of Cover / Days of Supply / Lost Sales
+  const inv = _acctCache.inventory.length ? _acctCache.inventory : await acctLoadInventory(products.map(p=>p.id));
+  _acctCache.inventory = inv;
+  const invByProduct = {};
+  (inv || []).forEach(r => {
+    const pid = r.product_id;
+    invByProduct[pid] = invByProduct[pid] || { fba:0, awd:0, angora:0, other:0 };
+    invByProduct[pid][r.location || 'other'] = (invByProduct[pid][r.location || 'other']||0) + (r.quantity||0);
+  });
+  const last30Sales = rangeSales.filter(s => {
+    const d = new Date(s.sale_date + 'T00:00:00');
+    return (Date.now() - d.getTime()) <= 30*86400000;
+  });
+  const last30UnitsByProduct = {};
+  last30Sales.forEach(s => { last30UnitsByProduct[s.product_id] = (last30UnitsByProduct[s.product_id]||0) + (s.units_sold||0); });
+  let totalFba = 0, totalAvgDaily = 0;
+  const skuAlerts = [];
+  (products || []).forEach(p => {
+    const fba = invByProduct[p.id]?.fba || 0;
+    const units30 = last30UnitsByProduct[p.id] || 0;
+    const avgDaily = units30 / 30;
+    totalFba += fba;
+    totalAvgDaily += avgDaily;
+    if (avgDaily > 0) {
+      const daysOfSupply = fba / avgDaily;
+      const weeksOfCover = daysOfSupply / 7;
+      // Lead time assumption: 60 days. Safety stock = Z(1.65) * σ * √L, approximate σ as 30% of avgDaily.
+      const leadTime = 60;
+      const sigma = avgDaily * 0.3;
+      const safetyStock = 1.65 * sigma * Math.sqrt(leadTime);
+      const reorderPoint = (avgDaily * leadTime) + safetyStock;
+      if (fba <= reorderPoint && fba > 0 && daysOfSupply < 90) {
+        skuAlerts.push({
+          level: daysOfSupply < 14 ? 'danger' : 'warn',
+          text: `${p.name || p.sku} — ${Math.round(daysOfSupply)} days of FBA supply. Reorder ~${Math.round(reorderPoint)} units.`
+        });
+      }
+      if (fba === 0 && units30 > 0) {
+        // Lost sales estimate: assume OOS for X days (use most-recent sale gap up to 14d)
+        const recentSales = rangeSales.filter(s => s.product_id === p.id).sort((a,b) => b.sale_date.localeCompare(a.sale_date));
+        if (recentSales.length > 0) {
+          const lastDate = new Date(recentSales[0].sale_date + 'T00:00:00');
+          const daysOut = Math.min(30, Math.floor((Date.now() - lastDate.getTime()) / 86400000));
+          if (daysOut > 0) {
+            const asp = (recentSales.slice(0,7).reduce((a,s) => a + parseFloat(s.revenue||0), 0) / Math.max(1, recentSales.slice(0,7).reduce((a,s) => a + (s.units_sold||0), 0))) || 0;
+            const lost = avgDaily * daysOut * asp;
+            if (lost > 0) {
+              skuAlerts.push({
+                level: 'danger',
+                text: `${p.name || p.sku} — OUT OF STOCK ~${daysOut}d · Est lost revenue ${acctDashFmtMoney(lost, true)}.`
+              });
+            }
+          }
+        }
+      }
+    }
+  });
+  const avgDailyAll = totalAvgDaily;
+  const weeksOfCover = avgDailyAll > 0 ? (totalFba / avgDailyAll) / 7 : 0;
+
+  // 7) Render alerts strip
+  const alertsHost = document.getElementById('acctDashAlerts');
+  if (alertsHost) {
+    const top = skuAlerts.slice(0, 4);
+    if (top.length === 0) {
+      alertsHost.style.display = 'none';
+      alertsHost.innerHTML = '';
+    } else {
+      alertsHost.style.display = 'flex';
+      alertsHost.innerHTML = top.map(a => `<div class="acct-alert-chip ${a.level==='danger'?'':'warn'}"><span style="font-size:14px">${a.level==='danger'?'🛑':'⚠'}</span><span>${a.text.replace(/</g,'&lt;')}</span></div>`).join('');
+    }
+  }
+
+  // 8) Render KPI strip
+  const kpiHost = document.getElementById('acctDashKpis');
+  if (kpiHost) {
+    const cards = [
+      { label:'Revenue',     val: acctDashFmtMoney(totalRev, true),  delta: acctDashDeltaBadge(totalRev, prevRev),   spark: acctDashTinySparkline(sparkRev, '#a78bfa') },
+      { label:'Units',       val: acctDashFmtInt(totalUnits),         delta: acctDashDeltaBadge(totalUnits, prevUnits), spark: acctDashTinySparkline(sparkUnits, '#60a5fa') },
+      { label:'Net Profit',  val: acctDashFmtMoney(netProfit, true),  delta: acctDashDeltaBadge(netProfit, prevNet),  spark: '' },
+      { label:'Net Margin',  val: acctDashFmtPct(netMargin),          delta: '', spark:'' },
+      { label:'AOV',         val: acctDashFmtMoney(aov, true),        delta: acctDashDeltaBadge(aov, prevAov), spark:'' },
+      { label:'TACoS',       val: acctDashFmtPct(tacos),              delta: acctDashDeltaBadge(tacos, prevTacos), spark:'' },
+      { label:'Weeks of Cover', val: weeksOfCover>0 ? weeksOfCover.toFixed(1) + 'w' : '—', delta:'', spark:'' },
+      { label:'FBA Units',   val: acctDashFmtInt(totalFba),           delta:'', spark:'' },
+    ];
+    kpiHost.innerHTML = cards.map(c => `
+      <div class="acct-kpi-card">
+        <div class="acct-kpi-label">${c.label}</div>
+        <div class="acct-kpi-value">${c.val}</div>
+        ${c.delta || ''}
+        ${c.spark || ''}
+      </div>
+    `).join('');
+  }
+
+  // Range label under section title
+  const rlbl = document.getElementById('acctDashRangeLabel');
+  if (rlbl) rlbl.textContent = `Last ${rangeDays} days · ${grouping} buckets`;
+
+  // 9) Fee-stack donut (where money goes)
+  const donutCanvas = document.getElementById('acctDashFeeDonut');
+  if (donutCanvas) {
+    const fees = [
+      { label:'Amazon Fees',    val: amazonFees,             color:'#f97316' },
+      { label:'Placement',      val: reportTotals.placement_fee||0, color:'#ef4444' },
+      { label:'Storage',        val: reportTotals.storage_fee||0,   color:'#eab308' },
+      { label:'Aged Inventory', val: reportTotals.aged_fee||0,      color:'#84cc16' },
+      { label:'Ad Spend',       val: totalAds,                color:'#06b6d4' },
+      { label:'Angora 5%',      val: angora5,                 color:'#a78bfa' },
+      { label:'Net Profit',     val: Math.max(0, netProfit),  color:'#4ade80' },
+    ];
+    const totalSlices = fees.reduce((a,f)=>a+f.val, 0);
+    if (_acctCache.dashFeeChart) { try { _acctCache.dashFeeChart.destroy(); } catch(e){} }
+    if (totalSlices > 0) {
+      _acctCache.dashFeeChart = new Chart(donutCanvas, {
+        type:'doughnut',
+        data:{ labels: fees.map(f=>f.label), datasets:[{ data: fees.map(f=>f.val), backgroundColor: fees.map(f=>f.color), borderWidth:0, hoverOffset:10 }] },
+        options:{ responsive:true, maintainAspectRatio:false, cutout:'68%', plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'rgba(14,14,18,0.97)', padding:12, callbacks:{ label:(c)=>` ${c.label}: ${acctDashFmtMoney(c.parsed, true)}` } } } }
+      });
+    }
+    const leg = document.getElementById('acctDashFeeLegend');
+    if (leg) leg.innerHTML = fees.map(f => `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;background:${f.color};border-radius:3px"></span><span style="color:var(--text)">${f.label}</span></div><span style="color:var(--muted)">${acctDashFmtMoney(f.val, true)}${totalSlices>0?' · '+((f.val/totalSlices)*100).toFixed(0)+'%':''}</span></div>`).join('');
+  }
+
+  // 10) Top SKUs by revenue in range
+  const host = document.getElementById('acctDashTopSkus');
+  if (host) {
+    const byPid = {};
+    rangeSales.forEach(s => {
+      byPid[s.product_id] = byPid[s.product_id] || { rev:0, units:0 };
+      byPid[s.product_id].rev += parseFloat(s.revenue||0);
+      byPid[s.product_id].units += (s.units_sold||0);
+    });
+    const ranked = (products||[]).map(p => ({ p, rev: byPid[p.id]?.rev||0, units: byPid[p.id]?.units||0 }))
+      .sort((a,b) => b.rev - a.rev).slice(0, 6);
+    const maxRev = ranked[0]?.rev || 1;
+    host.innerHTML = ranked.length === 0 ? '<div style="color:var(--muted);text-align:center;padding:20px;font-family:DM Mono,monospace;font-size:10px">No sales in range</div>' :
+      ranked.map((r,i) => `
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="flex:0 0 18px;font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);font-weight:700">${i+1}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-family:'Syne',sans-serif;font-size:11px;color:var(--text);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(r.p.name || r.p.sku || '').replace(/</g,'&lt;')}</div>
+            <div style="height:4px;background:var(--surface2);border-radius:2px;margin-top:4px;overflow:hidden"><div style="width:${(r.rev/maxRev*100).toFixed(1)}%;height:100%;background:linear-gradient(90deg,var(--accent),#60a5fa);border-radius:2px"></div></div>
+          </div>
+          <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text);font-weight:700;text-align:right">${acctDashFmtMoney(r.rev, true)}<div style="font-size:9px;color:var(--muted);font-weight:400">${acctDashFmtInt(r.units)} u</div></div>
+        </div>
+      `).join('');
+  }
+}
+
+// Load previous-period sales for delta comparison (the N days before the current range)
+async function acctLoadPreviousPeriodSales(products, rangeDays) {
+  const sb = window.angoraSupabase; if (!sb) return [];
+  const productIds = products.map(p => p.id); if (productIds.length === 0) return [];
+  const end = new Date(Date.now() - rangeDays*86400000);
+  const start = new Date(end.getTime() - rangeDays*86400000);
+  const startIso = start.toISOString().slice(0,10);
+  const endIso = end.toISOString().slice(0,10);
+  const { data } = await sb.from('angora_daily_sales')
+    .select('product_id, sale_date, units_sold, revenue, ad_spend, fba_fees')
+    .in('product_id', productIds)
+    .gte('sale_date', startIso)
+    .lt('sale_date', endIso);
+  return data || [];
+}
+
+// Sum monthly report totals that fall within the selected range
+async function acctDashLoadReportTotals(accountId, rangeDays) {
+  const sb = window.angoraSupabase; if (!sb) return {};
+  const sinceDate = new Date(Date.now() - rangeDays*86400000);
+  const sinceYm = `${sinceDate.getFullYear()}-${String(sinceDate.getMonth()+1).padStart(2,'0')}`;
+  const { data } = await sb.from('angora_report_uploads')
+    .select('report_type, month, totals')
+    .eq('account_id', accountId)
+    .gte('month', sinceYm);
+  const agg = { amazon_fees:0, placement_fee:0, storage_fee:0, aged_fee:0 };
+  (data||[]).forEach(r => {
+    const t = r.totals || {};
+    if (r.report_type === 'transactions')       agg.amazon_fees    += Number(t.amazon_fees||0);
+    if (r.report_type === 'inbound_placement')  agg.placement_fee  += Number(t.placement_fee||0);
+    if (r.report_type === 'monthly_storage')    agg.storage_fee    += Number(t.storage_fee||0);
+    if (r.report_type === 'aged_inventory')     agg.aged_fee       += Number(t.aged_fee||0);
+  });
+  return agg;
 }
 
 async function acctAddManualSale() {
@@ -19234,6 +19738,300 @@ async function acctDeleteNote(noteId) {
   if (error) return alert('Delete failed: ' + error.message);
   document.getElementById('acctNoteModal').remove();
   acctRenderNotesTab();
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// REPORTS TAB — monthly CSV uploads (4 slots) + 12-month P&L rollup
+// Each slot parses its CSV, stores raw rows + totals in angora_report_uploads
+// keyed by (account_id, report_type, month). PSM never re-uploads.
+// ═════════════════════════════════════════════════════════════════════════
+const ACCT_REPORT_TYPES = [
+  { key: 'transactions',      label: 'Transaction Report',       sub: 'Seller Central → Reports → Payments → Transaction View',            accept: '.csv' },
+  { key: 'inbound_placement', label: 'Inbound Placement Fee',    sub: 'Seller Central → Reports → Fulfillment → FBA Inbound Placement Fee', accept: '.csv' },
+  { key: 'monthly_storage',   label: 'Monthly Storage Fee',      sub: 'Seller Central → Reports → Fulfillment → Monthly Storage Fees',     accept: '.csv' },
+  { key: 'aged_inventory',    label: 'Aged Inventory Surcharge', sub: 'Seller Central → Reports → Fulfillment → Aged Inventory Surcharge', accept: '.csv' },
+];
+
+let _acctReportsMonth = null; // 'YYYY-MM'
+let _acctReportsCache = {};   // { 'YYYY-MM': { transactions: row, ... } }
+
+function acctReportsCurrentMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+function acctReportsFmtMonth(ym) {
+  const [y,m] = ym.split('-').map(Number);
+  return new Date(y, m-1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+function acctReportsShiftMonth(delta) {
+  if (!_acctReportsMonth) _acctReportsMonth = acctReportsCurrentMonth();
+  const [y,m] = _acctReportsMonth.split('-').map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  _acctReportsMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  acctRenderReportsTab();
+}
+
+async function acctRenderReportsTab() {
+  if (!_acctReportsMonth) _acctReportsMonth = acctReportsCurrentMonth();
+  const lbl = document.getElementById('acctReportsMonthLbl');
+  const slots = document.getElementById('acctReportsSlots');
+  const pnl = document.getElementById('acctReportsPnlTable');
+  if (!lbl || !slots) return;
+  lbl.textContent = acctReportsFmtMonth(_acctReportsMonth);
+  const accountId = _acctCache.accountId;
+  if (!accountId) { slots.innerHTML = '<div style="color:#a0a2b0;padding:20px;text-align:center">Account not loaded yet.</div>'; return; }
+
+  // Fetch last 12 months of uploads in one query, bucket by month
+  const sb = window.angoraSupabase; if (!sb) return;
+  const since = new Date(); since.setMonth(since.getMonth()-13);
+  const sinceYm = `${since.getFullYear()}-${String(since.getMonth()+1).padStart(2,'0')}`;
+  const { data: all } = await sb.from('angora_report_uploads')
+    .select('id, report_type, month, filename, row_count, totals, uploaded_at')
+    .eq('account_id', accountId)
+    .gte('month', sinceYm)
+    .order('month', { ascending: false });
+  _acctReportsCache = {};
+  (all || []).forEach(r => {
+    if (!_acctReportsCache[r.month]) _acctReportsCache[r.month] = {};
+    _acctReportsCache[r.month][r.report_type] = r;
+  });
+
+  // Render 4 slots for the current month
+  const month = _acctReportsMonth;
+  const bucket = _acctReportsCache[month] || {};
+  slots.innerHTML = ACCT_REPORT_TYPES.map(t => {
+    const up = bucket[t.key];
+    const status = up
+      ? `<div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#4ade80;font-weight:700"><span style="width:6px;height:6px;background:#4ade80;border-radius:50%"></span>UPLOADED</div>`
+      : `<div style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);font-weight:700"><span style="width:6px;height:6px;background:var(--muted);border-radius:50%;opacity:0.4"></span>EMPTY</div>`;
+    const totals = up ? acctReportsTotalsBadge(t.key, up.totals) : '';
+    const meta = up ? `<div style="font-size:9px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:6px">${up.filename || ''} · ${up.row_count||0} rows</div>` : '';
+    const replaceBtn = up ? `<button onclick="acctReportsReplaceUpload('${t.key}')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:9px;color:var(--muted);cursor:pointer;margin-top:8px;font-family:'DM Mono',monospace;letter-spacing:1px">REPLACE</button>` : '';
+    return `
+      <div id="acctReportsSlot_${t.key}" class="acct-reports-slot" style="background:var(--surface2);border:1px dashed ${up?'rgba(74,222,128,0.4)':'var(--border)'};border-radius:12px;padding:14px;cursor:${up?'default':'pointer'};transition:all 0.15s;min-height:120px" ${up?'':`onclick="acctReportsPickFile('${t.key}')"`}>
+        <div style="display:flex;align-items:start;justify-content:space-between;gap:8px;margin-bottom:8px">
+          <div>
+            <div style="font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">${t.label}</div>
+            <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--muted);line-height:1.4">${t.sub}</div>
+          </div>
+          ${status}
+        </div>
+        ${totals}
+        ${meta}
+        ${replaceBtn}
+      </div>
+    `;
+  }).join('');
+
+  // 12-month P&L table
+  acctReportsRenderPnlTable();
+}
+
+function acctReportsTotalsBadge(type, totals) {
+  if (!totals) return '';
+  const fmt = n => '$' + Number(n||0).toFixed(2);
+  if (type === 'transactions')      return `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text);line-height:1.5"><div>Revenue: ${fmt(totals.revenue)}</div><div>Amazon fees: ${fmt(totals.amazon_fees)}</div><div>Units: ${totals.units||0}</div></div>`;
+  if (type === 'inbound_placement') return `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text)">Placement fee: ${fmt(totals.placement_fee)}</div>`;
+  if (type === 'monthly_storage')   return `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text)">Storage fee: ${fmt(totals.storage_fee)}</div>`;
+  if (type === 'aged_inventory')    return `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text)"><div>Aged fee: ${fmt(totals.aged_fee)}</div><div>Qty: ${totals.qty||0}</div></div>`;
+  return '';
+}
+
+function acctReportsPickFile(type) {
+  let input = document.getElementById('acctReportsFileInput');
+  if (!input) {
+    input = document.createElement('input');
+    input.type = 'file'; input.id = 'acctReportsFileInput';
+    input.accept = '.csv,text/csv';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+  }
+  input.onchange = async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    await acctReportsHandleFile(type, file);
+    input.value = '';
+  };
+  input.click();
+}
+window.acctReportsReplaceUpload = function(type) {
+  if (!confirm('Replace the existing upload for this month?')) return;
+  acctReportsPickFile(type);
+};
+
+async function acctReportsHandleFile(type, file) {
+  const slot = document.getElementById('acctReportsSlot_' + type);
+  if (slot) slot.innerHTML = '<div style="color:var(--accent);padding:40px;text-align:center;font-family:\'DM Mono\',monospace;font-size:10px">PARSING…</div>';
+  try {
+    const text = await file.text();
+    const rows = acctReportsParseCsv(text);
+    if (rows.length === 0) throw new Error('CSV has no data rows.');
+    const { totals, normalized } = acctReportsExtractTotals(type, rows);
+    const sb = window.angoraSupabase;
+    const { data: user } = await sb.auth.getUser();
+    const payload = {
+      account_id: _acctCache.accountId,
+      report_type: type,
+      month: _acctReportsMonth,
+      filename: file.name,
+      row_count: normalized.length,
+      totals,
+      rows: normalized,
+      uploaded_by: user?.user?.id || null,
+      uploaded_at: new Date().toISOString(),
+    };
+    const { error } = await sb.from('angora_report_uploads').upsert(payload, { onConflict: 'account_id,report_type,month' });
+    if (error) throw new Error(error.message || JSON.stringify(error));
+    await acctRenderReportsTab();
+  } catch (e) {
+    console.error('acctReports upload err', e);
+    alert('Upload failed: ' + (e.message || e));
+    await acctRenderReportsTab();
+  }
+}
+
+// Robust CSV parser (handles quoted fields with commas + CRLF)
+function acctReportsParseCsv(text) {
+  const out = [];
+  const rows = [];
+  let row = [], field = '', inQ = false;
+  for (let i=0; i<text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') { if (text[i+1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\n') { row.push(field); field = ''; rows.push(row); row = []; }
+      else if (c === '\r') { /* swallow */ }
+      else field += c;
+    }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  if (rows.length < 2) return [];
+  const header = rows[0].map(h => h.trim());
+  for (let r=1; r<rows.length; r++) {
+    if (rows[r].length === 1 && !rows[r][0]) continue;
+    const obj = {};
+    header.forEach((h,i) => { obj[h] = (rows[r][i]||'').trim(); });
+    out.push(obj);
+  }
+  return out;
+}
+
+function acctReportsNum(v) {
+  if (v == null || v === '') return 0;
+  const n = Number(String(v).replace(/[^0-9.\-]/g, ''));
+  return isFinite(n) ? n : 0;
+}
+
+function acctReportsExtractTotals(type, rows) {
+  const normalized = [];
+  const totals = {};
+  if (type === 'transactions') {
+    let revenue = 0, fees = 0, rebates = 0, other = 0, units = 0;
+    for (const r of rows) {
+      const status = (r['Transaction Status'] || r['Transaction status'] || '').toLowerCase();
+      const tType = (r['Transaction type'] || r['Transaction Type'] || '').toLowerCase();
+      if (tType && !tType.includes('order')) continue; // only order payments count toward revenue
+      const charges = acctReportsNum(r['Total product charges']);
+      const amazonFees = acctReportsNum(r['Amazon fees']);
+      const promo = acctReportsNum(r['Total promotional rebates']);
+      const oth = acctReportsNum(r['Other']);
+      revenue += charges;
+      fees += amazonFees; // usually negative
+      rebates += promo;
+      other += oth;
+      units += 1; // one order payment = one unit approx (Amazon's raw Transaction View doesn't expose qty)
+      normalized.push({ date: r['Date'], order_id: r['Order ID'], charges, amazon_fees: amazonFees, promo: promo, other: oth });
+    }
+    Object.assign(totals, { revenue, amazon_fees: Math.abs(fees), promo_rebates: rebates, other, units });
+  } else if (type === 'inbound_placement') {
+    let placement = 0;
+    for (const r of rows) {
+      const v = acctReportsNum(r['Total FBA inbound placement service fee charge']);
+      placement += v;
+      normalized.push({ date: r['Transaction date'], asin: r['ASIN'], fnsku: r['FNSKU'], qty: acctReportsNum(r['Actual received quantity']), fee: v });
+    }
+    Object.assign(totals, { placement_fee: placement });
+  } else if (type === 'monthly_storage') {
+    let storage = 0;
+    for (const r of rows) {
+      const v = acctReportsNum(r['estimated_monthly_storage_fee']);
+      storage += v;
+      normalized.push({ asin: r['asin'], fnsku: r['fnsku'], center: r['fulfillment_center'], month: r['month_of_charge'], fee: v });
+    }
+    Object.assign(totals, { storage_fee: storage });
+  } else if (type === 'aged_inventory') {
+    let aged = 0, qty = 0;
+    for (const r of rows) {
+      const v = acctReportsNum(r['amount-charged']);
+      const q = acctReportsNum(r['qty-charged']);
+      aged += v; qty += q;
+      normalized.push({ snapshot: r['snapshot-date'], sku: r['sku'], asin: r['asin'], tier: r['surcharge-age-tier'], qty: q, fee: v });
+    }
+    Object.assign(totals, { aged_fee: aged, qty });
+  }
+  return { totals, normalized };
+}
+
+function acctReportsRenderPnlTable() {
+  const host = document.getElementById('acctReportsPnlTable'); if (!host) return;
+  // Build month axis = last 12 months ending at _acctReportsMonth
+  const months = [];
+  const [y,m] = _acctReportsMonth.split('-').map(Number);
+  for (let i=11; i>=0; i--) {
+    const d = new Date(y, m-1-i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  }
+  const fmt = n => n === 0 ? '—' : '$' + Number(n||0).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  const pctFmt = n => !isFinite(n) || n === 0 ? '—' : (n*100).toFixed(1) + '%';
+  const rows = months.map(mo => {
+    const b = _acctReportsCache[mo] || {};
+    const tx = b.transactions?.totals || {};
+    const ip = b.inbound_placement?.totals || {};
+    const st = b.monthly_storage?.totals || {};
+    const ag = b.aged_inventory?.totals || {};
+    const rev = Number(tx.revenue||0);
+    const amzFees = Number(tx.amazon_fees||0);
+    const placement = Number(ip.placement_fee||0);
+    const storage = Number(st.storage_fee||0);
+    const aged = Number(ag.aged_fee||0);
+    const angora5 = rev * 0.05;
+    const net = rev - amzFees - placement - storage - aged - angora5;
+    const margin = rev > 0 ? net/rev : 0;
+    return { mo, rev, amzFees, placement, storage, aged, angora5, net, margin, complete: b.transactions && b.inbound_placement && b.monthly_storage && b.aged_inventory };
+  });
+  const th = 'padding:8px 10px;font-family:\'DM Mono\',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);text-align:right;border-bottom:1px solid var(--border)';
+  const td = 'padding:8px 10px;font-family:\'DM Mono\',monospace;font-size:11px;color:var(--text);text-align:right;border-bottom:1px solid var(--border)';
+  host.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;min-width:700px">
+      <thead><tr>
+        <th style="${th};text-align:left">Month</th>
+        <th style="${th}">Gross Rev</th>
+        <th style="${th}">Amazon Fees</th>
+        <th style="${th}">Placement</th>
+        <th style="${th}">Storage</th>
+        <th style="${th}">Aged Inv</th>
+        <th style="${th}">Angora 5%</th>
+        <th style="${th}">Net Profit</th>
+        <th style="${th}">Margin</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `<tr style="opacity:${r.complete?1:0.55}" onclick="_acctReportsMonth='${r.mo}';acctRenderReportsTab();" ${r.mo===_acctReportsMonth?'style="background:rgba(167,139,250,0.08)"':''}>
+          <td style="${td};text-align:left;cursor:pointer;font-weight:${r.mo===_acctReportsMonth?'700':'400'}">${acctReportsFmtMonth(r.mo)}${r.complete?'':' <span style=\"color:var(--muted);font-size:8px\">(partial)</span>'}</td>
+          <td style="${td}">${fmt(r.rev)}</td>
+          <td style="${td};color:#f87171">${fmt(-r.amzFees)}</td>
+          <td style="${td};color:#f87171">${fmt(-r.placement)}</td>
+          <td style="${td};color:#f87171">${fmt(-r.storage)}</td>
+          <td style="${td};color:#f87171">${fmt(-r.aged)}</td>
+          <td style="${td};color:#f87171">${fmt(-r.angora5)}</td>
+          <td style="${td};font-weight:700;color:${r.net>=0?'#4ade80':'#f87171'}">${fmt(r.net)}</td>
+          <td style="${td}">${pctFmt(r.margin)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  `;
 }
 
 // ═════════════════════════════════════════════════════════════════════════
