@@ -20005,28 +20005,45 @@ function acctReportsExtractTotals(type, rows) {
   const normalized = [];
   const totals = {};
   if (type === 'transactions') {
-    // Amazon has TWO shapes of Transaction / Payments report:
-    //   A) Date Range Report (richer):    columns include "Product sales", "FBA fees", "Selling fees",
-    //                                     "Other transaction fees", "Shipping credits", "Quantity"
-    //   B) Payments → Transaction View:   columns include "Total product charges", "Amazon fees",
-    //                                     "Total promotional rebates", "Other"
-    // Per Alex (04-22): revenue = sum of "Product sales", Amazon fees = "Selling fees" + "FBA fees".
-    // We support BOTH shapes and always normalize to { revenue, amazon_fees, ... }.
-    const hdr = rows[0] || {};
-    const isDateRange = ('Product sales' in hdr) || ('product sales' in hdr) || ('FBA fees' in hdr) || ('Selling fees' in hdr);
-    let revenue = 0, fees = 0, sellingFees = 0, fbaFees = 0, rebates = 0, other = 0, shipping = 0, units = 0;
-    for (const r of rows) {
-      const tType = (r['Transaction type'] || r['Transaction Type'] || r['type'] || '').toLowerCase();
-      // on Date-Range reports, we keep rows where type is order-like OR when there is no type column
+    // Amazon exports transaction reports under several templates — Custom Unified
+    // Transaction Report, Date Range Report, Payments → Transaction View, etc.
+    // Column names differ in case, punctuation, and wording. Normalize each row's
+    // keys once then look up by a *canonical* key. This makes the parser tolerant
+    // of "Product sales", "product sales", "product-sales", "ProductSales", etc.
+    const canon = s => String(s||'').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const norm = rows.map(r => {
+      const o = {};
+      for (const k of Object.keys(r)) o[canon(k)] = r[k];
+      return o;
+    });
+    // Find a value from a row given an ordered list of candidate canonical keys.
+    const pick = (row, ...keys) => {
+      for (const k of keys) if (row[canon(k)] !== undefined && row[canon(k)] !== '') return row[canon(k)];
+      return 0;
+    };
+    // Detect shape by looking at the first row's canonical keys.
+    const hdrCanon = norm[0] ? Object.keys(norm[0]) : [];
+    const has = k => hdrCanon.includes(canon(k));
+    const isDateRange =
+      has('Product sales')   || has('product-sales')  ||
+      has('FBA fees')        || has('fba-fees')       ||
+      has('Selling fees')    || has('selling-fees');
+
+    let revenue = 0, fees = 0, sellingFees = 0, fbaFees = 0,
+        rebates = 0, other = 0, shipping = 0, units = 0, qtyColFound = false;
+    for (const r of norm) {
+      const tType = String(pick(r,'transaction type','type','TransactionType')||'').toLowerCase();
       if (tType && !tType.includes('order') && !isDateRange) continue;
       if (isDateRange) {
-        const ps    = acctReportsNum(r['Product sales']    ?? r['product sales']    ?? r['Product Sales']);
-        const ship  = acctReportsNum(r['Shipping credits'] ?? r['shipping credits'] ?? r['Shipping Credits']);
-        const prom  = acctReportsNum(r['Promotional rebates'] ?? r['promotional rebates'] ?? r['Total promotional rebates']);
-        const sell  = acctReportsNum(r['Selling fees']     ?? r['selling fees']     ?? r['Selling Fees']);
-        const fba   = acctReportsNum(r['FBA fees']         ?? r['fba fees']         ?? r['FBA Fees']);
-        const oth   = acctReportsNum(r['Other transaction fees'] ?? r['Other']       ?? r['other transaction fees']);
-        const qty   = acctReportsNum(r['Quantity']         ?? r['quantity']         ?? r['Units']);
+        const ps    = acctReportsNum(pick(r,'product sales','Product sales','product-sales','productsales'));
+        const ship  = acctReportsNum(pick(r,'shipping credits','Shipping credits','shipping-credits'));
+        const prom  = acctReportsNum(pick(r,'promotional rebates','Promotional rebates','promotional-rebates','Total promotional rebates'));
+        const sell  = acctReportsNum(pick(r,'selling fees','Selling fees','selling-fees'));
+        const fba   = acctReportsNum(pick(r,'fba fees','FBA fees','fba-fees'));
+        const oth   = acctReportsNum(pick(r,'other transaction fees','Other transaction fees','other-transaction-fees','other'));
+        const qtyRaw = pick(r,'quantity','Quantity','qty','Units');
+        const qty   = acctReportsNum(qtyRaw);
+        if (qtyRaw !== 0 && qtyRaw !== '') qtyColFound = true;
         revenue     += ps;
         shipping    += ship;
         rebates     += prom;
@@ -20035,28 +20052,38 @@ function acctReportsExtractTotals(type, rows) {
         other       += oth;
         units       += qty;
         normalized.push({
-          date: r['Date'] || r['date'] || r['Month'] || r['month'],
-          order_id: r['Order ID'] || r['order id'] || '',
-          sku: r['SKU'] || r['sku'] || '',
-          asin: r['ASIN'] || r['asin'] || '',
+          date: pick(r,'date','Date','datetime','settlement start date'),
+          order_id: pick(r,'order id','Order ID','order-id'),
+          sku: pick(r,'sku','SKU'),
+          asin: pick(r,'asin','ASIN'),
           product_sales: ps, shipping_credits: ship, promo: prom,
           selling_fees: sell, fba_fees: fba, other: oth, quantity: qty,
         });
       } else {
-        const charges    = acctReportsNum(r['Total product charges']);
-        const amazonFees = acctReportsNum(r['Amazon fees']);
-        const promo      = acctReportsNum(r['Total promotional rebates']);
-        const oth        = acctReportsNum(r['Other']);
+        const charges    = acctReportsNum(pick(r,'Total product charges','total product charges'));
+        const amazonFees = acctReportsNum(pick(r,'Amazon fees','amazon fees','amazon-fees'));
+        const promo      = acctReportsNum(pick(r,'Total promotional rebates','total promotional rebates'));
+        const oth        = acctReportsNum(pick(r,'Other','other'));
         revenue += charges;
         fees    += amazonFees; // usually negative
         rebates += promo;
         other   += oth;
         units   += 1;
         normalized.push({
-          date: r['Date'], order_id: r['Order ID'], charges,
-          amazon_fees: amazonFees, promo: promo, other: oth,
+          date: pick(r,'Date','date'), order_id: pick(r,'Order ID','order id'),
+          charges, amazon_fees: amazonFees, promo, other: oth,
         });
       }
+    }
+    // If the Date-Range shape matched but the Quantity column was empty/missing,
+    // fall back to counting only "order"-type rows as 1 unit each.
+    if (isDateRange && !qtyColFound) {
+      let c = 0;
+      for (const r of norm) {
+        const tType = String(pick(r,'transaction type','type')||'').toLowerCase();
+        if (tType.includes('order')) c++;
+      }
+      units = c || units;
     }
     const amazonFeesTotal = isDateRange
       ? Math.abs(sellingFees) + Math.abs(fbaFees)  // per Alex: Selling fees + FBA fees
