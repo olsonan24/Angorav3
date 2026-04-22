@@ -18446,6 +18446,9 @@ async function acctRenderSalesTab() {
           bodyFont: { family: 'DM Mono', size: 11 },
           cornerRadius: 10,
           caretSize: 6,
+          // Only emit tooltip body for the primary bar/line dataset; Trend + Forecast
+          // overlay datasets would otherwise duplicate every line in the tooltip.
+          filter: (ctx) => ctx.datasetIndex === 0,
           callbacks: {
             title: (items) => {
               const k = sortedKeys[items[0].dataIndex];
@@ -18454,6 +18457,7 @@ async function acctRenderSalesTab() {
             label: (ctx) => {
               const k = sortedKeys[ctx.dataIndex];
               const b = byBucket[k];
+              if (!b) return '';
               const lines = [
                 `\ud83d\udce6 ${b.units.toLocaleString()} units sold`,
                 `\ud83d\udcb0 $${b.revenue.toFixed(2)} revenue`,
@@ -20002,12 +20006,89 @@ async function acctReportsHandleFile(type, file) {
     };
     const { error } = await sb.from('angora_report_uploads').upsert(payload, { onConflict: 'account_id,report_type,month' });
     if (error) throw new Error(error.message || JSON.stringify(error));
+    // If this is a Transaction Report, also back-fill angora_daily_sales so the
+    // Sales chart + Client Report can see historical sales at the daily level.
+    if (type === 'transactions') {
+      try { await acctReportsSyncToDailySales(normalized); }
+      catch (dsErr) { console.warn('daily_sales back-fill failed:', dsErr); angoraToast && angoraToast('Report saved, but daily_sales sync failed — check console.', {kind:'error'}); }
+    }
     await acctRenderReportsTab();
+    // Refresh the in-memory sales cache + any chart that's currently drawn
+    try {
+      if (typeof acctLoadSales === 'function') await acctLoadSales();
+      if (typeof acctRenderSalesTab === 'function') acctRenderSalesTab();
+    } catch(e) {}
   } catch (e) {
     console.error('acctReports upload err', e);
-    alert('Upload failed: ' + (e.message || e));
+    angoraToast ? angoraToast('Upload failed: ' + (e.message || e), {kind:'error'}) : alert('Upload failed: ' + (e.message || e));
     await acctRenderReportsTab();
   }
+}
+
+// Back-fill angora_daily_sales from a normalized Transaction Report. Keys rows by
+// (product_id, sale_date); matches by SKU first, then ASIN. Chunks to 500 rows
+// per upsert to stay under PostgREST payload limits.
+async function acctReportsSyncToDailySales(normalized) {
+  const sb = window.angoraSupabase;
+  if (!sb) return;
+  const products = (_acctCache && _acctCache.products) || [];
+  if (!products.length) { console.warn('daily_sales back-fill: no products loaded for this account'); return; }
+  const bySku = {}, byAsin = {};
+  for (const p of products) {
+    if (p.sku)  bySku[String(p.sku).toUpperCase().trim()]   = p.id;
+    if (p.asin) byAsin[String(p.asin).toUpperCase().trim()] = p.id;
+  }
+  const agg = {};
+  let missing = 0, noDate = 0, kept = 0;
+  for (const r of normalized) {
+    if (!r) continue;
+    const qty = Number(r.quantity || 0);
+    const rev = Number(r.product_sales || 0);
+    if (qty <= 0 && rev <= 0) continue;
+    // Parse date in any common shape (YYYY-MM-DD, M/D/YYYY, ISO8601, etc.)
+    const dRaw = String(r.date || '');
+    let date = null;
+    const iso = dRaw.match(/(\d{4})-(\d{2})-(\d{2})/);
+    const us  = dRaw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (iso) date = `${iso[1]}-${iso[2]}-${iso[3]}`;
+    else if (us) date = `${us[3]}-${String(us[1]).padStart(2,'0')}-${String(us[2]).padStart(2,'0')}`;
+    if (!date) { noDate++; continue; }
+    const sku  = String(r.sku || '').toUpperCase().trim();
+    const asin = String(r.asin || '').toUpperCase().trim();
+    const pid = bySku[sku] || byAsin[asin];
+    if (!pid) { missing++; continue; }
+    const key = `${pid}|${date}`;
+    if (!agg[key]) {
+      agg[key] = { product_id: pid, sale_date: date, units_sold: 0, revenue: 0, fba_fees: 0, other_fees: 0, ad_spend: 0, source: 'amazon_transactions' };
+    }
+    agg[key].units_sold += qty;
+    agg[key].revenue    += rev;
+    agg[key].fba_fees   += Math.abs(Number(r.fba_fees || 0));
+    agg[key].other_fees += Math.abs(Number(r.other || 0));
+    kept++;
+  }
+  const inserts = Object.values(agg);
+  if (inserts.length === 0) {
+    console.warn(`daily_sales back-fill: nothing to write. missing=${missing} noDate=${noDate} kept=${kept}`);
+    return;
+  }
+  inserts.forEach(x => {
+    x.revenue    = Math.round(x.revenue    * 100) / 100;
+    x.fba_fees   = Math.round(x.fba_fees   * 100) / 100;
+    x.other_fees = Math.round(x.other_fees * 100) / 100;
+  });
+  for (let i = 0; i < inserts.length; i += 500) {
+    const chunk = inserts.slice(i, i + 500);
+    const { error } = await sb.from('angora_daily_sales').upsert(chunk, { onConflict: 'product_id,sale_date' });
+    if (error) throw new Error(error.message || JSON.stringify(error));
+  }
+  if (typeof angoraToast === 'function') {
+    const suffix = missing > 0
+      ? ` \u00b7 skipped ${missing} row${missing===1?'':'s'} (SKU/ASIN not in product library)`
+      : '';
+    angoraToast(`Back-filled ${inserts.length} day${inserts.length===1?'':'s'} into daily_sales${suffix}.`);
+  }
+  console.log(`daily_sales back-fill: wrote=${inserts.length} missing=${missing} noDate=${noDate} kept=${kept}`);
 }
 
 // Robust CSV parser (handles quoted fields with commas + CRLF)
@@ -20885,22 +20966,43 @@ function acctBuildClientReportHtml(d) {
 function acctClientReportRender() {
   const preview = document.getElementById('acctClientReportPreview');
   if (!preview) return;
-  preview.innerHTML = '<div style="color:var(--muted);font-family:\'DM Mono\',monospace">Building report…</div>';
-  // Sync notes value into state
-  const t = document.getElementById('acctClientRptNotes');
-  if (t) _acctClientRpt.notes = t.value;
-  const data = acctClientReportGatherData();
-  const html = acctBuildClientReportHtml(data);
-  _acctClientRpt.html = html;
+  preview.style.cssText = 'background:#1a1a26;border:1px solid var(--border);border-radius:14px;padding:40px;min-height:200px;display:flex;align-items:center;justify-content:center';
+  preview.innerHTML = '<div style="color:var(--muted);font-family:\'DM Mono\',monospace;font-size:11px;letter-spacing:1.5px;text-transform:uppercase">Building report\u2026</div>';
+  try {
+    // Sync notes value into state
+    const t = document.getElementById('acctClientRptNotes');
+    if (t) _acctClientRpt.notes = t.value;
+    const data = acctClientReportGatherData();
+    const html = acctBuildClientReportHtml(data);
+    _acctClientRpt.html = html;
 
-  // Render inside an iframe so the report's own styles never leak into Garden
-  preview.style.cssText = 'background:#efece4;border:1px solid var(--border);border-radius:14px;padding:0;min-height:900px;overflow:hidden;display:block';
-  const iframe = document.createElement('iframe');
-  iframe.style.cssText = 'width:100%;height:1200px;border:0;display:block;border-radius:13px';
-  preview.innerHTML = '';
-  preview.appendChild(iframe);
-  const doc = iframe.contentDocument;
-  doc.open(); doc.write(html); doc.close();
+    // Render inside an iframe so the report's own styles never leak into Garden
+    preview.style.cssText = 'background:#efece4;border:1px solid var(--border);border-radius:14px;padding:0;min-height:900px;display:block';
+    preview.innerHTML = '';
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'width:100%;height:1600px;border:0;display:block;border-radius:13px;background:#faf9f6';
+    preview.appendChild(iframe);
+    const doc = iframe.contentDocument;
+    doc.open(); doc.write(html); doc.close();
+    // Auto-resize iframe to match actual content height
+    const resize = () => {
+      try {
+        const h = Math.max(900, iframe.contentDocument.body.scrollHeight + 40);
+        iframe.style.height = h + 'px';
+      } catch(e) {}
+    };
+    iframe.onload = resize;
+    setTimeout(resize, 120);
+    setTimeout(resize, 500);
+  } catch (err) {
+    console.error('Client Report render error:', err);
+    preview.style.cssText = 'background:rgba(163,49,58,0.08);border:1px solid rgba(163,49,58,0.35);border-radius:14px;padding:24px;display:block;min-height:0';
+    preview.innerHTML = `<div style="color:#ff9ba2;font-family:'Inter',sans-serif;font-size:13px;line-height:1.6">
+      <div style="font-family:'JetBrains Mono',monospace;letter-spacing:1.5px;text-transform:uppercase;font-size:10px;color:#ffb3b9;margin-bottom:10px;font-weight:700">Report build failed</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;background:rgba(0,0,0,0.25);padding:10px 12px;border-radius:6px;color:#ffd6d9;white-space:pre-wrap">${(err && (err.message || err.stack) || String(err)).replace(/</g,'&lt;')}</div>
+      <div style="color:var(--muted);font-size:11px;margin-top:10px">Check the browser console for the full stack trace.</div>
+    </div>`;
+  }
 }
 
 function acctClientReportExportPdf() {
