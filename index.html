@@ -17736,6 +17736,22 @@ function acctSwitchTab(tab) {
 
 async function acctEnsureAccount(brand) {
   if (!brand) return null;
+  // IMPORTANT: if the brand changed since last cache fill, every per-account
+  // array in _acctCache must be wiped *before* we return. Otherwise any render
+  // tab that does `_acctCache.products.length ? _acctCache.products : ...` will
+  // keep drawing with the PREVIOUS account's products & sales \u2014 which is how
+  // Account B ended up showing Account A's chart after a PDF upload.
+  if (_acctCache.brand !== brand) {
+    _acctCache.accountId = null;
+    _acctCache.products  = [];
+    _acctCache.dailySales = [];
+    _acctCache.inventory = [];
+    _acctCache.economics = [];
+    _acctCache.messages  = [];
+    _acctCache.invDirty  = new Map();
+    if (_acctCache.salesChart)    { try { _acctCache.salesChart.destroy(); }    catch(e){} _acctCache.salesChart = null; }
+    if (_acctCache.dashFeeChart)  { try { _acctCache.dashFeeChart.destroy(); }  catch(e){} _acctCache.dashFeeChart = null; }
+  }
   if (_acctCache.brand === brand && _acctCache.accountId) return _acctCache.accountId;
   const sb = window.angoraSupabase || (typeof getSupabaseClient === 'function' ? await getSupabaseClient() : null);
   if (!sb) return null;
