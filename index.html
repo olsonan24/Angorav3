@@ -14216,6 +14216,8 @@ async function acctProfileOpen(brand, specialist) {
 
   // Show panel immediately — don't wait for data
   overlay.style.display = 'block';
+  // Apply saved (or wide default) width before slide-in so it starts at full size
+  try { acctApplySavedPanelWidth(); } catch(e){}
   requestAnimationFrame(() => { panel.style.transform = 'translateX(0)'; });
   // Reset to overview tab
   try { acctSwitchTab('overview'); } catch(e){}
@@ -14539,7 +14541,23 @@ function acctStopResize() {
   document.body.style.cursor     = '';
   // Restore smooth transition for open/close
   const panel = document.getElementById('acctProfilePanel');
-  if (panel) panel.style.transition = 'transform 0.32s cubic-bezier(0.4,0,0.2,1)';
+  if (panel) {
+    panel.style.transition = 'transform 0.32s cubic-bezier(0.4,0,0.2,1)';
+    // Persist chosen width so the profile stays wide next time
+    try { localStorage.setItem('angoraAcctPanelW', String(panel.offsetWidth)); } catch(e){}
+  }
+}
+
+// On load / open, restore last-used width (or default to big)
+function acctApplySavedPanelWidth() {
+  const panel = document.getElementById('acctProfilePanel');
+  if (!panel) return;
+  let w = 0;
+  try { w = parseInt(localStorage.getItem('angoraAcctPanelW') || '0', 10); } catch(e){}
+  const maxW = Math.round(window.innerWidth * 0.96);
+  if (!w || isNaN(w)) w = Math.min(1600, maxW); // default: near full screen
+  w = Math.min(Math.max(w, ACCT_MIN_W), maxW);
+  panel.style.width = w + 'px';
 }
 
 
@@ -17296,7 +17314,7 @@ window.calDeleteAudit = async function() {
   </div><!-- /main-content -->
 </div><!-- /app-layout -->
 <div id="acctProfileOverlay" style="display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.72);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)" onclick="acctProfileClose()">
-  <div id="acctProfilePanel" onclick="event.stopPropagation()" style="position:absolute;inset:0 0 0 auto;width:min(760px,100vw);background:var(--bg);border-left:1px solid var(--border);display:flex;flex-direction:column;transform:translateX(100%);transition:transform 0.32s cubic-bezier(0.4,0,0.2,1);overflow:hidden">
+  <div id="acctProfilePanel" onclick="event.stopPropagation()" style="position:absolute;inset:0 0 0 auto;width:min(1600px,96vw);background:var(--bg);border-left:1px solid var(--border);display:flex;flex-direction:column;transform:translateX(100%);transition:transform 0.32s cubic-bezier(0.4,0,0.2,1);overflow:hidden">
 
     <!-- Drag-to-resize handle -->
     <div id="acctResizeHandle"
@@ -17340,6 +17358,7 @@ window.calDeleteAudit = async function() {
       <button class="acct-tab" data-tab="notes" onclick="acctSwitchTab('notes')">Notes</button>
       <button class="acct-tab" data-tab="messages" onclick="acctSwitchTab('messages')">Messages</button>
       <button class="acct-tab" data-tab="reports" onclick="acctSwitchTab('reports')">Reports</button>
+      <button class="acct-tab" data-tab="client_report" onclick="acctSwitchTab('client_report')">Client Report</button>
     </div>
 
     <!-- Scrollable body -->
@@ -17680,6 +17699,11 @@ window.calDeleteAudit = async function() {
         </div>
       </div>
 
+      <!-- CLIENT REPORT PANEL -->
+      <div class="acct-tab-panel" data-tabpanel="client_report" id="acctPanelClientReport">
+        <div id="acctClientReportRoot" style="min-height:200px"></div>
+      </div>
+
     </div><!-- /scrollable body -->
   </div><!-- /panel -->
 </div><!-- /acctProfileOverlay -->
@@ -17707,6 +17731,7 @@ function acctSwitchTab(tab) {
   if (tab === 'economics')  acctRenderEconomicsTab();
   if (tab === 'messages')   acctRenderMessagesTab();
   if (tab === 'reports')    acctRenderReportsTab();
+  if (tab === 'client_report') acctRenderClientReportTab();
 }
 
 async function acctEnsureAccount(brand) {
@@ -19985,8 +20010,23 @@ function acctReportsParseCsv(text) {
   }
   if (field.length || row.length) { row.push(field); rows.push(row); }
   if (rows.length < 2) return [];
-  const header = rows[0].map(h => h.trim());
-  for (let r=1; r<rows.length; r++) {
+  // Some Amazon report exports (Custom Unified Transaction, Settlement Summary, etc.)
+  // prepend several "key,value" preamble rows before the actual tabular header.
+  // Scan the first 30 rows for one that contains a recognizable Amazon column name.
+  const HEADER_HINTS = [
+    'date','date/time','order id','sku','asin','product sales','selling fees','fba fees',
+    'amazon fees','total product charges','quantity','total (usd)','transaction type','type',
+    'snapshot-date','asin','fnsku','estimated_monthly_storage_fee','amount-charged',
+    'total fba inbound placement service fee charge'
+  ];
+  let headerIdx = 0;
+  const maxScan = Math.min(rows.length, 30);
+  for (let i = 0; i < maxScan; i++) {
+    const joined = (rows[i] || []).map(x => String(x||'').toLowerCase().trim()).join('|');
+    if (HEADER_HINTS.some(h => joined.split('|').includes(h))) { headerIdx = i; break; }
+  }
+  const header = (rows[headerIdx] || []).map(h => (h||'').trim());
+  for (let r = headerIdx + 1; r < rows.length; r++) {
     if (rows[r].length === 1 && !rows[r][0]) continue;
     const obj = {};
     header.forEach((h,i) => { obj[h] = (rows[r][i]||'').trim(); });
@@ -20185,6 +20225,672 @@ function acctReportsRenderPnlTable() {
       </tbody>
     </table>
   `;
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// CLIENT REPORT TAB — editorial-grade Weekly/Monthly performance report
+// Auto-compiled from angora_daily_sales + angora_products + angora_inventory
+// + angora_report_uploads + angora_purchase_orders + angora_notes.
+// Produces a print-ready HTML document styled like a professional investor
+// letter (Instrument Serif + Inter + JetBrains Mono, generous whitespace,
+// KPI scorecard, SVG trend chart, horizontal fee-stack, inventory health,
+// forecast, editable PSM commentary). Client-safe mode hides Angora 5%.
+// ═════════════════════════════════════════════════════════════════════════
+
+const _acctClientRpt = {
+  mode: 'monthly',
+  weekStart: null,   // 'YYYY-MM-DD' (Monday)
+  month: null,       // 'YYYY-MM'
+  clientSafe: true,
+  notes: '',
+  html: '',          // cached latest rendered HTML
+};
+
+function _ymd(d) {
+  const y = d.getFullYear(), m = d.getMonth()+1, dd = d.getDate();
+  return `${y}-${String(m).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+}
+function _mondayOf(d) {
+  const x = new Date(d); x.setHours(12,0,0,0);
+  const dow = x.getDay(); // 0..6 (Sun..Sat)
+  const delta = dow === 0 ? -6 : 1 - dow;
+  x.setDate(x.getDate() + delta);
+  return x;
+}
+function _fmtMoney(v, { dash = true, signed = false } = {}) {
+  const n = Number(v||0);
+  if (!isFinite(n) || (dash && n === 0)) return '—';
+  const s = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
+  const sign = signed && n > 0 ? '+' : (n < 0 ? '−' : '');
+  return `${sign}$${s}`;
+}
+function _fmtInt(v) { const n = Number(v||0); return isFinite(n) ? n.toLocaleString('en-US') : '—'; }
+function _fmtPct(v, { signed = false, dp = 1 } = {}) {
+  const n = Number(v||0);
+  if (!isFinite(n)) return '—';
+  const sign = signed && n > 0 ? '+' : '';
+  return `${sign}${n.toFixed(dp)}%`;
+}
+function _cleanName(s) { return String(s||'').trim() || '—'; }
+
+// Current PSM name (from Garden login)
+function _acctCurrentPsm() {
+  try {
+    const u = window.angoraSupabase?.auth?.user?.() || null;
+    const email = u?.email || window._angoraUserEmail || '';
+    if (!email) return 'Angora PSM';
+    const handle = email.split('@')[0].replace(/[._-]/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+    return handle;
+  } catch(e) { return 'Angora PSM'; }
+}
+
+function acctRenderClientReportTab() {
+  const root = document.getElementById('acctClientReportRoot');
+  if (!root) return;
+  // Default period → current week/month
+  if (!_acctClientRpt.weekStart) _acctClientRpt.weekStart = _ymd(_mondayOf(new Date()));
+  if (!_acctClientRpt.month)     _acctClientRpt.month     = new Date().toISOString().slice(0,7);
+
+  // Load saved PSM notes (per account+period) from localStorage
+  const notesKey = `angoraClientRptNotes::${_acctCache.accountId||_acctActiveBrand}::${_acctClientRpt.mode}::${_acctClientRpt.mode==='weekly'?_acctClientRpt.weekStart:_acctClientRpt.month}`;
+  try { _acctClientRpt.notes = localStorage.getItem(notesKey) || _acctClientRpt.notes || ''; } catch(e){}
+
+  const modeBtn = (m, label) => `
+    <button onclick="acctClientReportSetMode('${m}')"
+      style="padding:9px 18px;background:${_acctClientRpt.mode===m?'linear-gradient(135deg,#6b8fff,#a78bfa)':'transparent'};
+             border:1px solid ${_acctClientRpt.mode===m?'transparent':'var(--border)'};
+             border-radius:10px;color:${_acctClientRpt.mode===m?'#fff':'var(--muted)'};
+             font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1.5px;
+             text-transform:uppercase;cursor:pointer;font-weight:${_acctClientRpt.mode===m?'700':'500'};
+             transition:all 0.15s">${label}</button>`;
+
+  const periodLabel = _acctClientRpt.mode === 'weekly'
+    ? (() => {
+        const [y,m,d] = _acctClientRpt.weekStart.split('-').map(Number);
+        const start = new Date(y, m-1, d);
+        const end   = new Date(y, m-1, d+6);
+        const fmt = dt => dt.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+        return `${fmt(start)} — ${fmt(end)}, ${start.getFullYear()}`;
+      })()
+    : (() => {
+        const [y,m] = _acctClientRpt.month.split('-').map(Number);
+        return new Date(y, m-1, 1).toLocaleDateString('en-US', { month:'long', year:'numeric' });
+      })();
+
+  root.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;margin-bottom:18px">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:18px">
+        <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-right:6px">Report type</div>
+        ${modeBtn('weekly','Weekly')}${modeBtn('monthly','Monthly')}
+      </div>
+
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:18px">
+        <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-right:6px">Period</div>
+        <button class="acct-save-btn" onclick="acctClientReportShift(-1)" style="padding:6px 12px">‹</button>
+        <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--text);min-width:240px;text-align:center">${periodLabel}</div>
+        <button class="acct-save-btn" onclick="acctClientReportShift(1)" style="padding:6px 12px">›</button>
+      </div>
+
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" ${_acctClientRpt.clientSafe?'checked':''} onchange="_acctClientRpt.clientSafe=this.checked;acctClientReportRender()" style="accent-color:#a78bfa">
+          <span style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text)">Client-safe view (hide Angora 5%)</span>
+        </label>
+        <div style="flex:1"></div>
+        <button onclick="acctClientReportRender()"
+          style="padding:10px 20px;background:linear-gradient(135deg,#6b8fff,#a78bfa);border:none;border-radius:10px;color:#fff;
+                 font-family:'DM Mono',monospace;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;cursor:pointer">
+          Generate Report
+        </button>
+        <button onclick="acctClientReportExportPdf()"
+          style="padding:10px 20px;background:transparent;border:1px solid var(--border);border-radius:10px;color:var(--text);
+                 font-family:'DM Mono',monospace;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;cursor:pointer">
+          ⬇ Export PDF
+        </button>
+      </div>
+
+      <div style="margin-top:22px;padding-top:22px;border-top:1px solid var(--border)">
+        <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">PSM Commentary</div>
+        <textarea id="acctClientRptNotes" placeholder="Optional commentary — wins, issues, action items. Shown in the report as PSM notes."
+          oninput="_acctClientRpt.notes=this.value;try{localStorage.setItem('${notesKey.replace(/'/g,"\\'")}',this.value)}catch(e){}"
+          style="width:100%;min-height:92px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;
+                 padding:12px 14px;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;line-height:1.55;resize:vertical"
+        >${(_acctClientRpt.notes||'').replace(/</g,'&lt;')}</textarea>
+      </div>
+    </div>
+
+    <div id="acctClientReportPreview" style="background:#1a1a26;border:1px solid var(--border);border-radius:14px;padding:18px;min-height:400px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-family:'DM Mono',monospace;font-size:11px;letter-spacing:1.5px;text-transform:uppercase">
+      Click "Generate Report" to preview
+    </div>
+  `;
+}
+
+function acctClientReportSetMode(m) { _acctClientRpt.mode = m; acctRenderClientReportTab(); }
+
+function acctClientReportShift(delta) {
+  if (_acctClientRpt.mode === 'weekly') {
+    const [y,m,d] = _acctClientRpt.weekStart.split('-').map(Number);
+    const dt = new Date(y, m-1, d + delta*7);
+    _acctClientRpt.weekStart = _ymd(dt);
+  } else {
+    const [y,m] = _acctClientRpt.month.split('-').map(Number);
+    const dt = new Date(y, m-1+delta, 1);
+    _acctClientRpt.month = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;
+  }
+  acctRenderClientReportTab();
+}
+
+// ── Data gathering for the report ─────────────────────────────────────────
+function acctClientReportGatherData() {
+  const mode = _acctClientRpt.mode;
+  let periodStart, periodEnd, prevStart, prevEnd, labelLong, labelShort;
+  if (mode === 'weekly') {
+    const [y,m,d] = _acctClientRpt.weekStart.split('-').map(Number);
+    periodStart = new Date(y, m-1, d);
+    periodEnd   = new Date(y, m-1, d+6);
+    prevStart   = new Date(y, m-1, d-7);
+    prevEnd     = new Date(y, m-1, d-1);
+    const fmt = dt => dt.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+    labelLong  = `Week of ${fmt(periodStart)} — ${fmt(periodEnd)}, ${periodEnd.getFullYear()}`;
+    labelShort = fmt(periodStart) + ' — ' + fmt(periodEnd);
+  } else {
+    const [y,m] = _acctClientRpt.month.split('-').map(Number);
+    periodStart = new Date(y, m-1, 1);
+    periodEnd   = new Date(y, m, 0); // last day of month
+    prevStart   = new Date(y, m-2, 1);
+    prevEnd     = new Date(y, m-1, 0);
+    labelLong   = periodStart.toLocaleDateString('en-US', { month:'long', year:'numeric' });
+    labelShort  = periodStart.toLocaleDateString('en-US', { month:'short', year:'numeric' });
+  }
+
+  const inRange = (dStr, a, b) => {
+    if (!dStr) return false;
+    const t = new Date(dStr + 'T12:00:00').getTime();
+    return t >= a.getTime() && t <= b.getTime();
+  };
+  const sales = Array.isArray(_acctCache.dailySales) ? _acctCache.dailySales : [];
+  const curSales  = sales.filter(s => inRange(s.sale_date, periodStart, periodEnd));
+  const prevSales = sales.filter(s => inRange(s.sale_date, prevStart,   prevEnd));
+
+  const sum = (rows, k) => rows.reduce((s,r) => s + Number(r[k]||0), 0);
+  const revenue    = sum(curSales, 'revenue');
+  const units      = sum(curSales, 'units_sold');
+  const adSpend    = sum(curSales, 'ad_spend');
+  const fbaFees    = sum(curSales, 'fba_fees');
+  const otherFees  = sum(curSales, 'other_fees');
+  const prevRev    = sum(prevSales, 'revenue');
+  const prevUnits  = sum(prevSales, 'units_sold');
+  const prevAds    = sum(prevSales, 'ad_spend');
+
+  // Look up report totals for Amazon fees, storage, placement, aged (authoritative if present)
+  let rptAmazonFees = 0, rptStorage = 0, rptPlacement = 0, rptAged = 0;
+  try {
+    const cache = _acctReportsCache || {};
+    const pickMonths = [];
+    if (mode === 'monthly') pickMonths.push(_acctClientRpt.month);
+    else {
+      const a = periodStart.toISOString().slice(0,7);
+      const b = periodEnd.toISOString().slice(0,7);
+      pickMonths.push(a); if (b !== a) pickMonths.push(b);
+    }
+    for (const mo of pickMonths) {
+      const b = cache[mo] || {};
+      rptAmazonFees += Number(b.transactions?.totals?.amazon_fees || 0) * (mode==='weekly' ? (7/30) : 1);
+      rptStorage    += Number(b.monthly_storage?.totals?.storage_fee || 0) * (mode==='weekly' ? (7/30) : 1);
+      rptPlacement  += Number(b.inbound_placement?.totals?.placement_fee || 0) * (mode==='weekly' ? (7/30) : 1);
+      rptAged       += Number(b.aged_inventory?.totals?.aged_fee || 0) * (mode==='weekly' ? (7/30) : 1);
+    }
+  } catch(e){}
+
+  // Amazon fees: prefer report totals, fallback to sum of daily fba_fees + per-SKU referral estimate
+  let amazonFees = rptAmazonFees;
+  if (!amazonFees) {
+    amazonFees = fbaFees;
+    // add per-SKU referral estimate (revenue × referral_fee_pct/100)
+    const refByRev = {};
+    for (const p of (_acctCache.products||[])) refByRev[p.id] = Number(p.referral_fee_pct ?? 15) / 100;
+    amazonFees += curSales.reduce((s,r) => s + (Number(r.revenue||0) * (refByRev[r.product_id] ?? 0.15)), 0);
+  }
+
+  // COGS: sum of units × product.cogs per day
+  const cogsMap = {};
+  for (const p of (_acctCache.products||[])) cogsMap[p.id] = Number(p.cogs||0);
+  const cogs = curSales.reduce((s,r) => s + Number(r.units_sold||0) * (cogsMap[r.product_id] || 0), 0);
+
+  // Angora 5% rev share
+  const angoraFee = revenue * 0.05;
+
+  // Net profit (client-safe hides Angora 5% — treat it as zero)
+  const clientSafe = _acctClientRpt.clientSafe;
+  const netProfit = revenue - amazonFees - cogs - adSpend - rptStorage - rptPlacement - rptAged - (clientSafe ? 0 : angoraFee);
+  const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+  const aov       = units > 0 ? revenue / units : 0;
+  const tacos     = revenue > 0 ? (adSpend / revenue) * 100 : 0;
+
+  const prevAngora = prevRev * 0.05;
+  const prevNet    = prevRev - (rptAmazonFees*(prevRev?prevRev/Math.max(revenue,1):1)) - 0 /* unknown prev cogs share */ - prevAds - (clientSafe?0:prevAngora);
+  // Safer: compare revenue/units deltas only (prev P&L is noisy without matching uploads)
+  const dRevPct   = prevRev > 0 ? ((revenue - prevRev)/prevRev)*100 : (revenue > 0 ? 100 : 0);
+  const dUnitsPct = prevUnits > 0 ? ((units - prevUnits)/prevUnits)*100 : (units > 0 ? 100 : 0);
+  const dAdsPct   = prevAds > 0 ? ((adSpend - prevAds)/prevAds)*100 : (adSpend > 0 ? 100 : 0);
+
+  // Daily trend (fill gaps with 0 so the chart spans the full period)
+  const days = [];
+  for (let dt = new Date(periodStart); dt <= periodEnd; dt.setDate(dt.getDate()+1)) {
+    days.push({ date: _ymd(dt), rev: 0, units: 0 });
+  }
+  const idx = {};
+  days.forEach((d,i) => { idx[d.date] = i; });
+  for (const s of curSales) {
+    const i = idx[s.sale_date];
+    if (i != null) { days[i].rev += Number(s.revenue||0); days[i].units += Number(s.units_sold||0); }
+  }
+
+  // Top SKUs by revenue within the period
+  const bySku = {};
+  for (const s of curSales) {
+    const pid = s.product_id;
+    if (!bySku[pid]) bySku[pid] = { units:0, revenue:0 };
+    bySku[pid].units   += Number(s.units_sold||0);
+    bySku[pid].revenue += Number(s.revenue||0);
+  }
+  const productsById = {};
+  for (const p of (_acctCache.products||[])) productsById[p.id] = p;
+  const topSkus = Object.entries(bySku)
+    .map(([pid,v]) => {
+      const p = productsById[pid] || {};
+      const unitCost = (Number(p.cogs||0)) + (v.units ? (v.revenue * (Number(p.referral_fee_pct ?? 15)/100)) / v.units : 0) + (Number(p.fba_fee_manual||0));
+      const profit   = v.revenue - v.units*unitCost - (clientSafe ? 0 : v.revenue*0.05);
+      const margin   = v.revenue > 0 ? (profit/v.revenue)*100 : 0;
+      return { name: p.name || p.sku || pid, units: v.units, revenue: v.revenue, margin };
+    })
+    .sort((a,b) => b.revenue - a.revenue).slice(0,5);
+
+  // Inventory health — SKUs with Days Supply < 30 or OOS
+  const invAlerts = [];
+  const invByProduct = {};
+  for (const row of (_acctCache.inventory||[])) {
+    invByProduct[row.product_id] = (invByProduct[row.product_id]||0) + Number(row.quantity||0);
+  }
+  // Recent 14-day avg daily units by SKU (for days-supply calc)
+  const last14Start = new Date(); last14Start.setDate(last14Start.getDate()-14);
+  const recentBySku = {};
+  for (const s of sales) {
+    if (inRange(s.sale_date, last14Start, new Date())) {
+      recentBySku[s.product_id] = (recentBySku[s.product_id]||0) + Number(s.units_sold||0);
+    }
+  }
+  for (const p of (_acctCache.products||[])) {
+    const onHand = invByProduct[p.id] || 0;
+    const avgDaily = (recentBySku[p.id] || 0) / 14;
+    const daysSupply = avgDaily > 0 ? onHand / avgDaily : (onHand === 0 ? 0 : Infinity);
+    if (onHand === 0 || (isFinite(daysSupply) && daysSupply < 30)) {
+      invAlerts.push({ name: p.name || p.sku || 'SKU', onHand, daysSupply, avgDaily, oos: onHand === 0 });
+    }
+  }
+  invAlerts.sort((a,b) => (a.daysSupply||0) - (b.daysSupply||0));
+
+  // Forecast next period (simple: scale current pace to next period length)
+  const daysInPeriod = Math.max(1, Math.round((periodEnd - periodStart)/86400000) + 1);
+  const nextPeriodDays = daysInPeriod;
+  const avgDailyRev = revenue / daysInPeriod;
+  const avgDailyUnits = units / daysInPeriod;
+  // range ±12% based on recent variance
+  const forecastRev = avgDailyRev * nextPeriodDays;
+  const forecastUnits = avgDailyUnits * nextPeriodDays;
+
+  return {
+    brand: _acctCache.brand || _acctActiveBrand || '—',
+    psm: _acctCurrentPsm(),
+    mode, labelLong, labelShort, periodStart, periodEnd, daysInPeriod,
+    revenue, units, adSpend, amazonFees, cogs, rptStorage, rptPlacement, rptAged,
+    angoraFee, netProfit, netMargin, aov, tacos,
+    dRevPct, dUnitsPct, dAdsPct, prevRev, prevUnits, prevAds,
+    days, topSkus, invAlerts, forecastRev, forecastUnits,
+    clientSafe,
+    notes: _acctClientRpt.notes || '',
+  };
+}
+
+// ── Report HTML ───────────────────────────────────────────────────────────
+function acctBuildClientReportHtml(d) {
+  const ink = '#0d0d14', soft = '#565968', paper = '#faf9f6', paper2 = '#f3f0e9', rule = '#dcd6c9';
+  const accent = '#5a3dbd', accentSoft = '#efeafc';
+  const green = '#1e6b3a', red = '#a3313a', amber = '#b4761e';
+
+  // SVG daily trend chart: 820 × 220
+  const chartW = 720, chartH = 220, padL = 48, padR = 16, padT = 16, padB = 28;
+  const innerW = chartW - padL - padR, innerH = chartH - padT - padB;
+  const maxY = Math.max(1, ...d.days.map(x => x.rev));
+  // nice axis max (round up to next step)
+  const niceMax = (m => { const p = Math.pow(10, Math.floor(Math.log10(m))); const r = m/p; const nm = r<=1?1:r<=2?2:r<=3?3:r<=5?5:10; return nm*p; })(maxY || 1);
+  const xStep = innerW / Math.max(1, d.days.length);
+  const bars = d.days.map((pt,i) => {
+    const x = padL + i*xStep + 2;
+    const h = niceMax > 0 ? (pt.rev / niceMax) * innerH : 0;
+    const y = padT + innerH - h;
+    const w = Math.max(1.5, xStep - 4);
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="url(#barGrad)"/>`;
+  }).join('');
+  const yTicks = [0, niceMax*0.25, niceMax*0.5, niceMax*0.75, niceMax];
+  const gridLines = yTicks.map(v => {
+    const y = padT + innerH - (v/niceMax)*innerH;
+    return `<line x1="${padL}" y1="${y}" x2="${padL+innerW}" y2="${y}" stroke="${rule}" stroke-width="0.5" stroke-dasharray="2 3"/>
+            <text x="${padL-6}" y="${y+3}" text-anchor="end" font-family="JetBrains Mono, ui-monospace" font-size="8.5" fill="${soft}">$${Math.round(v/1000)>0?Math.round(v/1000)+'k':Math.round(v)}</text>`;
+  }).join('');
+  const nTicks = Math.min(d.days.length, 8);
+  const tickStep = Math.max(1, Math.floor(d.days.length / nTicks));
+  const xLabels = d.days.map((pt,i) => {
+    if (i % tickStep !== 0 && i !== d.days.length-1) return '';
+    const [y,m,day] = pt.date.split('-').map(Number);
+    const label = new Date(y,m-1,day).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const x = padL + i*xStep + xStep/2;
+    return `<text x="${x.toFixed(1)}" y="${chartH-8}" text-anchor="middle" font-family="JetBrains Mono, ui-monospace" font-size="8.5" fill="${soft}" letter-spacing="0.5">${label}</text>`;
+  }).join('');
+
+  // Fee stack — horizontal bar
+  const parts = [
+    { k:'COGS',         v: d.cogs,        c:'#3b4252' },
+    { k:'Amazon Fees',  v: d.amazonFees,  c:'#8b1e3f' },
+    { k:'Ad Spend',     v: d.adSpend,     c:'#8f5a18' },
+    { k:'Storage',      v: d.rptStorage,  c:'#5b5842' },
+    { k:'Placement',    v: d.rptPlacement,c:'#4e5a8e' },
+    { k:'Aged',         v: d.rptAged,     c:'#6d3b3b' },
+  ];
+  if (!d.clientSafe) parts.push({ k:'Angora Service (5%)', v: d.angoraFee, c:'#5a3dbd' });
+  parts.push({ k: d.netProfit >= 0 ? 'Net Profit' : 'Net Loss', v: Math.max(0, d.netProfit), c: d.netProfit >= 0 ? '#1e6b3a' : '#a3313a' });
+  const totalStack = Math.max(1, parts.reduce((s,p) => s + Math.max(0,p.v), 0));
+  const stackHtml = parts.map(p => {
+    const pct = (Math.max(0,p.v)/totalStack)*100;
+    if (pct < 0.3) return '';
+    return `<div style="flex:${pct} 0 0;background:${p.c};height:100%;position:relative;border-right:1px solid rgba(255,255,255,0.2)"></div>`;
+  }).join('');
+  const legendHtml = parts.filter(p => p.v > 0).map(p => `
+    <div style="display:flex;align-items:center;gap:8px;font-family:Inter,sans-serif;font-size:10.5px;color:${ink}">
+      <span style="width:10px;height:10px;background:${p.c};border-radius:2px;display:inline-block"></span>
+      <span style="flex:1;color:${soft};letter-spacing:0.2px">${p.k}</span>
+      <span style="font-variant-numeric:tabular-nums;font-weight:600">${_fmtMoney(p.v,{dash:false})}</span>
+      <span style="color:${soft};min-width:44px;text-align:right;font-variant-numeric:tabular-nums">${((p.v/totalStack)*100).toFixed(1)}%</span>
+    </div>`).join('');
+
+  // KPI delta pill
+  const deltaPill = (pct) => {
+    if (!isFinite(pct) || pct === 0) return `<span style="font:500 10.5px/1 'JetBrains Mono';color:${soft}">—</span>`;
+    const up = pct > 0;
+    return `<span style="display:inline-flex;align-items:center;gap:3px;font:500 10.5px/1 'JetBrains Mono';color:${up?green:red}">
+      ${up?'▲':'▼'} ${Math.abs(pct).toFixed(1)}%
+    </span>`;
+  };
+
+  // Executive summary — auto
+  const periodWord = d.mode === 'weekly' ? 'this week' : 'this month';
+  const prevWord   = d.mode === 'weekly' ? 'last week' : 'the prior month';
+  const direction  = d.dRevPct > 2 ? 'climbed' : d.dRevPct < -2 ? 'softened' : 'held steady';
+  const summaryLines = [];
+  if (d.revenue > 0) {
+    summaryLines.push(`Revenue ${direction} to ${_fmtMoney(d.revenue,{dash:false})} ${periodWord}${isFinite(d.dRevPct) && d.prevRev > 0 ? `, a ${_fmtPct(d.dRevPct,{signed:true})} move versus ${prevWord}` : ''}.`);
+  } else {
+    summaryLines.push(`No recorded sales data for ${periodWord}. Once the ${d.mode === 'weekly' ? 'weekly' : 'monthly'} transaction report uploads, this section will populate with a full performance narrative.`);
+  }
+  if (d.units > 0)    summaryLines.push(`${_fmtInt(d.units)} units were fulfilled at an average order value of ${_fmtMoney(d.aov,{dash:false})}.`);
+  if (d.adSpend > 0)  summaryLines.push(`Advertising investment totaled ${_fmtMoney(d.adSpend,{dash:false})} (TACoS ${d.tacos.toFixed(1)}%).`);
+  if (d.invAlerts.length) summaryLines.push(`${d.invAlerts.length} SKU${d.invAlerts.length===1?'':'s'} need restock attention this cycle.`);
+
+  const topSkuRows = d.topSkus.length
+    ? d.topSkus.map(s => `
+      <tr>
+        <td style="padding:11px 14px;border-bottom:1px solid ${rule};font:500 12px/1.35 Inter;color:${ink}">${_cleanName(s.name)}</td>
+        <td style="padding:11px 14px;border-bottom:1px solid ${rule};text-align:right;font:500 12px 'JetBrains Mono';color:${ink};font-variant-numeric:tabular-nums">${_fmtInt(s.units)}</td>
+        <td style="padding:11px 14px;border-bottom:1px solid ${rule};text-align:right;font:500 12px 'JetBrains Mono';color:${ink};font-variant-numeric:tabular-nums">${_fmtMoney(s.revenue,{dash:false})}</td>
+        <td style="padding:11px 14px;border-bottom:1px solid ${rule};text-align:right;font:500 12px 'JetBrains Mono';color:${s.margin>=15?green:s.margin>=5?amber:red};font-variant-numeric:tabular-nums">${s.margin.toFixed(1)}%</td>
+      </tr>`).join('')
+    : `<tr><td colspan="4" style="padding:18px;text-align:center;color:${soft};font:400 12px Inter;font-style:italic">No SKU-level sales in this period.</td></tr>`;
+
+  const invRows = d.invAlerts.slice(0,6).map(a => {
+    const status = a.oos ? 'Out of Stock' : a.daysSupply < 14 ? 'Critical' : 'Low';
+    const color  = a.oos || a.daysSupply < 14 ? red : amber;
+    return `<tr>
+      <td style="padding:11px 14px;border-bottom:1px solid ${rule};font:500 12px Inter;color:${ink}">${_cleanName(a.name)}</td>
+      <td style="padding:11px 14px;border-bottom:1px solid ${rule};text-align:right;font:500 12px 'JetBrains Mono';color:${ink};font-variant-numeric:tabular-nums">${_fmtInt(a.onHand)}</td>
+      <td style="padding:11px 14px;border-bottom:1px solid ${rule};text-align:right;font:500 12px 'JetBrains Mono';color:${ink};font-variant-numeric:tabular-nums">${isFinite(a.daysSupply)?a.daysSupply.toFixed(0)+' days':'—'}</td>
+      <td style="padding:11px 14px;border-bottom:1px solid ${rule};text-align:right">
+        <span style="display:inline-block;padding:3px 10px;border-radius:20px;background:${color}15;color:${color};font:600 9.5px 'JetBrains Mono';letter-spacing:1.2px;text-transform:uppercase">${status}</span>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const noteParas = d.notes.trim()
+    ? d.notes.split(/\n{2,}/).map(p => `<p style="margin:0 0 10px;font:400 13.5px/1.7 Inter;color:${ink}">${p.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</p>`).join('')
+    : `<p style="margin:0;font:400 13px/1.7 Inter;color:${soft};font-style:italic">The Partner Success Manager will add commentary here ahead of the next review.</p>`;
+
+  const today = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>${d.brand} — ${d.labelLong}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:${paper};color:${ink};font-family:'Inter',ui-sans-serif,system-ui,sans-serif;font-feature-settings:'ss01','cv01','cv11';-webkit-font-smoothing:antialiased}
+  .page{max-width:820px;margin:0 auto;padding:56px 60px 72px;background:${paper}}
+  .label{font:500 9.5px/1 'JetBrains Mono',ui-monospace;letter-spacing:0.28em;text-transform:uppercase;color:${soft}}
+  .label-accent{font:500 9.5px/1 'JetBrains Mono',ui-monospace;letter-spacing:0.28em;text-transform:uppercase;color:${accent}}
+  .h-display{font:400 56px/1.02 'Instrument Serif',Georgia,serif;letter-spacing:-0.01em;color:${ink}}
+  .h2{font:400 26px/1.15 'Instrument Serif',Georgia,serif;color:${ink};margin-bottom:4px}
+  .rule{height:1px;background:${rule};margin:32px 0}
+  .rule-thin{height:1px;background:${rule};margin:18px 0}
+  .kpi{background:${paper2};border:1px solid ${rule};border-radius:10px;padding:18px 20px}
+  .kpi .kv{font:500 30px/1.1 'Inter';letter-spacing:-0.02em;font-variant-numeric:tabular-nums;margin-top:10px}
+  .kpi .kd{margin-top:8px}
+  .num{font-variant-numeric:tabular-nums;font-feature-settings:'tnum'}
+  .section{margin-top:40px}
+  .section-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:18px;gap:16px}
+  @page{size:letter portrait;margin:0.4in}
+  @media print{body{background:white}.page{padding:0}}
+</style></head><body>
+<div class="page">
+
+  <!-- HEADER BAND -->
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid ${ink};padding-bottom:28px">
+    <div style="display:flex;align-items:center;gap:16px">
+      <div style="width:44px;height:44px;border-radius:50%;background:${accent};display:flex;align-items:center;justify-content:center;color:#fff;font:700 20px/1 'Instrument Serif';letter-spacing:0.5px">A</div>
+      <div>
+        <div class="label-accent" style="margin-bottom:6px">Angora · Amazon Brand Management</div>
+        <div style="font:600 13px/1.3 Inter;color:${ink};letter-spacing:0.2px">${d.brand}</div>
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div class="label" style="margin-bottom:6px">${d.mode === 'weekly' ? 'Weekly Report' : 'Monthly Report'}</div>
+      <div style="font:500 11.5px 'JetBrains Mono';color:${soft};letter-spacing:0.04em">Prepared ${today}</div>
+    </div>
+  </div>
+
+  <!-- HERO -->
+  <div style="margin-top:54px;margin-bottom:40px">
+    <div class="label" style="margin-bottom:18px">Performance Report · ${d.labelShort}</div>
+    <div class="h-display">${d.mode === 'weekly' ? 'Week in review.' : 'Month in review.'}</div>
+    <div style="margin-top:18px;font:400 16px/1.55 'Instrument Serif',Georgia,serif;color:${soft};font-style:italic;max-width:620px">${d.labelLong}${d.clientSafe ? ' · prepared for the brand partner.' : ' · internal Angora view.'}</div>
+  </div>
+
+  <!-- EXECUTIVE SUMMARY -->
+  <div class="section" style="margin-top:0">
+    <div class="section-head"><div><div class="label">01</div><div class="h2">Executive summary</div></div></div>
+    <div style="font:400 14.5px/1.75 Inter;color:${ink};max-width:720px">
+      ${summaryLines.map(s => `<p style="margin:0 0 10px">${s}</p>`).join('')}
+    </div>
+  </div>
+
+  <div class="rule"></div>
+
+  <!-- KPI SCORECARD -->
+  <div class="section" style="margin-top:0">
+    <div class="section-head"><div><div class="label">02</div><div class="h2">Headline metrics</div></div>
+      <div class="label" style="color:${soft}">vs ${d.mode === 'weekly' ? 'last week' : 'prior month'}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+      <div class="kpi">
+        <div class="label">Revenue</div>
+        <div class="kv">${_fmtMoney(d.revenue,{dash:false})}</div>
+        <div class="kd">${deltaPill(d.dRevPct)}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Units sold</div>
+        <div class="kv">${_fmtInt(d.units)}</div>
+        <div class="kd">${deltaPill(d.dUnitsPct)}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">${d.clientSafe ? 'Gross profit' : 'Net profit'}</div>
+        <div class="kv" style="color:${d.netProfit>=0?green:red}">${_fmtMoney(d.netProfit,{dash:false})}</div>
+        <div class="kd"><span style="font:500 10.5px 'JetBrains Mono';color:${soft}">${d.netMargin.toFixed(1)}% margin</span></div>
+      </div>
+      <div class="kpi">
+        <div class="label">Average order</div>
+        <div class="kv">${_fmtMoney(d.aov,{dash:false})}</div>
+        <div class="kd"><span style="font:500 10.5px 'JetBrains Mono';color:${soft}">TACoS ${d.tacos.toFixed(1)}%</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- REVENUE TREND -->
+  <div class="section">
+    <div class="section-head"><div><div class="label">03</div><div class="h2">Revenue trajectory</div></div>
+      <div class="label" style="color:${soft}">Daily · ${d.days.length} days</div>
+    </div>
+    <div style="background:${paper2};border:1px solid ${rule};border-radius:10px;padding:18px 14px 12px">
+      <svg viewBox="0 0 ${chartW} ${chartH}" style="width:100%;height:auto;display:block" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <linearGradient id="barGrad" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stop-color="${accent}" stop-opacity="0.95"/>
+            <stop offset="1" stop-color="${accent}" stop-opacity="0.6"/>
+          </linearGradient>
+        </defs>
+        ${gridLines}
+        ${bars}
+        ${xLabels}
+      </svg>
+    </div>
+  </div>
+
+  <!-- FEE STACK -->
+  <div class="section">
+    <div class="section-head"><div><div class="label">04</div><div class="h2">Where the money went</div></div>
+      <div class="label" style="color:${soft}">Revenue allocation</div>
+    </div>
+    <div style="background:${paper2};border:1px solid ${rule};border-radius:10px;padding:20px 20px 18px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="font:500 13px Inter;color:${ink}">Gross revenue <span class="num" style="color:${soft};margin-left:8px">${_fmtMoney(d.revenue,{dash:false})}</span></div>
+        <div style="font:500 13px Inter;color:${d.netProfit>=0?green:red}">${d.netProfit>=0?'Net profit':'Net loss'} <span class="num" style="margin-left:8px">${_fmtMoney(Math.abs(d.netProfit),{dash:false})}</span></div>
+      </div>
+      <div style="display:flex;height:28px;border-radius:6px;overflow:hidden;border:1px solid ${rule}">${stackHtml}</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px 28px;margin-top:18px">${legendHtml}</div>
+    </div>
+  </div>
+
+  <!-- TOP SKUs + INVENTORY (two-col) -->
+  <div class="section">
+    <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:24px;align-items:flex-start">
+      <div>
+        <div class="section-head"><div><div class="label">05</div><div class="h2">Top performers</div></div></div>
+        <div style="background:${paper2};border:1px solid ${rule};border-radius:10px;overflow:hidden">
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:${paper}">
+              <th class="label" style="text-align:left;padding:11px 14px;border-bottom:1px solid ${rule}">Product</th>
+              <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">Units</th>
+              <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">Revenue</th>
+              <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">Margin</th>
+            </tr></thead>
+            <tbody>${topSkuRows}</tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <div class="section-head"><div><div class="label">06</div><div class="h2">Inventory watch</div></div></div>
+        <div style="background:${paper2};border:1px solid ${rule};border-radius:10px;overflow:hidden">
+          ${d.invAlerts.length ? `<table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:${paper}">
+              <th class="label" style="text-align:left;padding:11px 14px;border-bottom:1px solid ${rule}">SKU</th>
+              <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">On hand</th>
+              <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">Days supply</th>
+              <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">Status</th>
+            </tr></thead>
+            <tbody>${invRows}</tbody>
+          </table>` : `<div style="padding:28px 18px;text-align:center;color:${soft};font:400 13px/1.55 Inter;font-style:italic">All SKUs are comfortably stocked. No alerts this ${d.mode === 'weekly' ? 'week' : 'month'}.</div>`}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FORECAST -->
+  <div class="section">
+    <div class="section-head"><div><div class="label">07</div><div class="h2">Looking ahead</div></div>
+      <div class="label" style="color:${soft}">Next ${d.mode === 'weekly' ? 'week' : 'month'} projection</div>
+    </div>
+    <div style="background:linear-gradient(100deg,${accentSoft},${paper2});border:1px solid ${rule};border-radius:10px;padding:24px 26px;display:grid;grid-template-columns:1fr 1fr;gap:24px">
+      <div>
+        <div class="label" style="color:${accent};margin-bottom:10px">Projected revenue</div>
+        <div style="font:400 38px/1.05 'Instrument Serif';color:${ink};letter-spacing:-0.01em">${_fmtMoney(d.forecastRev,{dash:false})}</div>
+        <div style="font:500 10.5px 'JetBrains Mono';color:${soft};margin-top:8px;letter-spacing:0.04em">RANGE ${_fmtMoney(d.forecastRev*0.88,{dash:false})} — ${_fmtMoney(d.forecastRev*1.12,{dash:false})}</div>
+      </div>
+      <div>
+        <div class="label" style="color:${accent};margin-bottom:10px">Projected units</div>
+        <div style="font:400 38px/1.05 'Instrument Serif';color:${ink};letter-spacing:-0.01em">${_fmtInt(Math.round(d.forecastUnits))}</div>
+        <div style="font:500 10.5px 'JetBrains Mono';color:${soft};margin-top:8px;letter-spacing:0.04em">BASED ON ${d.daysInPeriod}-DAY PACE</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PSM COMMENTARY -->
+  <div class="section">
+    <div class="section-head"><div><div class="label">08</div><div class="h2">Notes from your Partner Success Manager</div></div></div>
+    <div style="background:${paper2};border-left:3px solid ${accent};border-radius:0 10px 10px 0;padding:22px 26px">
+      ${noteParas}
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid ${rule};font:500 10px 'JetBrains Mono';letter-spacing:0.14em;text-transform:uppercase;color:${soft}">— ${d.psm}</div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div style="margin-top:60px;padding-top:24px;border-top:1px solid ${ink};display:flex;justify-content:space-between;align-items:center">
+    <div style="display:flex;align-items:center;gap:12px">
+      <div style="width:24px;height:24px;border-radius:50%;background:${ink};color:${paper};display:flex;align-items:center;justify-content:center;font:700 11px 'Instrument Serif'">A</div>
+      <div class="label" style="color:${soft}">Angora · ${d.clientSafe ? 'Prepared for partner review' : 'Internal Angora copy'}</div>
+    </div>
+    <div class="label" style="color:${soft}">Confidential · ${d.labelShort}</div>
+  </div>
+
+</div>
+</body></html>`;
+}
+
+function acctClientReportRender() {
+  const preview = document.getElementById('acctClientReportPreview');
+  if (!preview) return;
+  preview.innerHTML = '<div style="color:var(--muted);font-family:\'DM Mono\',monospace">Building report…</div>';
+  // Sync notes value into state
+  const t = document.getElementById('acctClientRptNotes');
+  if (t) _acctClientRpt.notes = t.value;
+  const data = acctClientReportGatherData();
+  const html = acctBuildClientReportHtml(data);
+  _acctClientRpt.html = html;
+
+  // Render inside an iframe so the report's own styles never leak into Garden
+  preview.style.cssText = 'background:#efece4;border:1px solid var(--border);border-radius:14px;padding:0;min-height:900px;overflow:hidden;display:block';
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'width:100%;height:1200px;border:0;display:block;border-radius:13px';
+  preview.innerHTML = '';
+  preview.appendChild(iframe);
+  const doc = iframe.contentDocument;
+  doc.open(); doc.write(html); doc.close();
+}
+
+function acctClientReportExportPdf() {
+  if (!_acctClientRpt.html) acctClientReportRender();
+  const w = window.open('', '_blank');
+  if (!w) { angoraToast && angoraToast('Popup blocked — allow popups, then try again.', {kind:'error'}); return; }
+  w.document.open();
+  w.document.write(_acctClientRpt.html);
+  w.document.close();
+  setTimeout(() => { try { w.focus(); w.print(); } catch(e){} }, 500);
 }
 
 // ═════════════════════════════════════════════════════════════════════════
