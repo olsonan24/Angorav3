@@ -18051,7 +18051,7 @@ function acctOpenProductEdit(productId) {
         ${fld('prodCogs','COGS (landed, $/unit)', p.cogs || 0, 'number', 'step="0.01" min="0"', 'Cost + shipping. Auto-filled from Monday if present.')}
         ${fld('prodPrice','Sell Price ($)', p.price || 0, 'number', 'step="0.01" min="0"')}
         ${fld('prodRef','Referral Fee %', p.referral_fee_pct ?? 15, 'number', 'step="0.1" min="0" max="45"', 'Amazon category referral (default 15%)')}
-        ${fld('prodFba','FBA Fee Override ($)', p.fba_fee_manual ?? '', 'number', 'step="0.01" min="0"', 'Leave blank to auto-calc from dims+weight.')}
+        ${fld('prodFba','FBA Fee ($/unit)', p.fba_fee_manual ?? '', 'number', 'step="0.01" min="0"', 'Enter the FBA fulfillment fee per unit. Referral, margin, net profit auto-calc off this value.')}
         <div style="grid-column:1/-1;height:1px;background:var(--border);margin:4px 0"></div>
         <div style="grid-column:1/-1;font-family:\\'DM Mono\\',monospace;font-size:9px;text-transform:uppercase;letter-spacing:2px;color:var(--accent);margin-bottom:-6px">Dimensions & Weight (for auto-FBA)</div>
         ${fld('prodWeight','Weight (oz)', p.weight_oz ?? '', 'number', 'step="0.01" min="0"')}
@@ -19330,13 +19330,14 @@ function acctFbaFeeAuto(p) {
 }
 
 // Helper: resolve effective FBA per-unit fee for a product.
-// Precedence: manual override > auto-calc from dims > 0 (with warning)
+// 2026-04-23 Alex: FBA fees are MANUAL ONLY for now. Auto-calc from dimensions
+// (acctFbaFeeAuto) is kept in the file for a future toggle but is NOT used here.
+// Everything else (referral, margin, net profit, ROI) auto-recalculates off the
+// manual FBA fee. Missing manual fee => $0 contribution, flagged in UI source.
 function acctFbaPerUnit(p) {
   const manual = parseFloat(p.fba_fee_manual || 0);
   if (manual > 0) return { fee: manual, source: 'manual' };
-  const auto = acctFbaFeeAuto(p);
-  if (auto !== null && auto > 0) return { fee: auto, source: 'auto' };
-  return { fee: 0, source: 'none' };
+  return { fee: 0, source: 'missing_manual' };
 }
 
 // ── ECONOMICS TAB ─────────────────────────────────────────────────────────
