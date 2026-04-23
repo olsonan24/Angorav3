@@ -18322,10 +18322,19 @@ async function acctRenderSalesTab() {
   const byBucket = {};
   filteredSales.forEach(s => {
     const k = bucketKey(s.sale_date, grouping);
-    if (!byBucket[k]) byBucket[k] = { units: 0, revenue: 0, ads: 0, days: new Set(), dateKey: k };
-    byBucket[k].units   += (s.units_sold || 0);
-    byBucket[k].revenue += parseFloat(s.revenue || 0);
+    if (!byBucket[k]) byBucket[k] = { units: 0, revenue: 0, ads: 0, cogs: 0, fba: 0, referral: 0, days: new Set(), dateKey: k };
+    const _p = (function(){ const m={}; products.forEach(pp=>{m[pp.id]=pp;}); return m; })()[s.product_id];
+    const _u = (s.units_sold || 0);
+    const _r = parseFloat(s.revenue || 0);
+    byBucket[k].units   += _u;
+    byBucket[k].revenue += _r;
     byBucket[k].ads     += parseFloat(s.ad_spend || 0);
+    if (_p) {
+      byBucket[k].cogs     += _u * (parseFloat(_p.cogs) || 0);
+      const _fpu = typeof acctFbaPerUnit === 'function' ? acctFbaPerUnit(_p).fee : (parseFloat(_p.fba_fee_manual) || 0);
+      byBucket[k].fba      += _u * _fpu;
+      byBucket[k].referral += _r * ((_p.referral_fee_pct ?? 15) / 100);
+    }
     byBucket[k].days.add(s.sale_date);
   });
   // Fill zero-value buckets so the chart spans the full range, not just days with sales.
@@ -18335,7 +18344,7 @@ async function acctRenderSalesTab() {
   while (bucketCursor <= today) {
     const iso = bucketCursor.toISOString().slice(0,10);
     const k = bucketKey(iso, grouping);
-    if (!byBucket[k]) byBucket[k] = { units: 0, revenue: 0, ads: 0, days: new Set(), dateKey: k };
+    if (!byBucket[k]) byBucket[k] = { units: 0, revenue: 0, ads: 0, cogs: 0, fba: 0, referral: 0, days: new Set(), dateKey: k };
     bucketCursor.setDate(bucketCursor.getDate() + 1);
   }
   const sortedKeys = Object.keys(byBucket).sort();
@@ -18344,7 +18353,12 @@ async function acctRenderSalesTab() {
     const b = byBucket[k];
     if (metric === 'revenue')    return b.revenue;
     if (metric === 'units')      return b.units;
-    if (metric === 'net_profit') return b.revenue * 0.68 - b.ads; // rough proxy; exact P&L is in Reports tab
+    if (metric === 'net_profit') {
+      // Per-bucket net profit: revenue − COGS − FBA − referral − Angora 5% − ads
+      // Same model as the KPI strip. Monthly storage / placement / aged fees aren't
+      // distributed per-bucket (they only live on the monthly Reports rollup).
+      return b.revenue - b.cogs - b.fba - b.referral - (b.revenue * 0.05) - b.ads;
+    }
     return b.units;
   });
 
@@ -18652,7 +18666,9 @@ async function acctDashRender(accountId, rangeSales, products, rangeDays, groupi
   const reportTotals = await acctDashLoadReportTotals(accountId, rangeDays);
 
   // 5) Net Profit (use Reports if available, else approximate with 5% of revenue + ads)
-  //    Gross - amazon fees - placement - storage - aged - 5% - ads
+  //    Gross - COGS - amazon fees - placement - storage - aged - 5% - ads
+  //    NOTE: COGS (cost of goods sold) is always subtracted using per-product cogs * units.
+  //    This keeps the Sales-tab KPI strip consistent with the Economics tab truth numbers.
   const angora5 = totalRev * 0.05;
   let amazonFees = reportTotals.amazon_fees || 0;
   // Fallback 1: fba_fees column summed from daily sales (rare — not usually populated)
@@ -18660,7 +18676,8 @@ async function acctDashRender(accountId, rangeSales, products, rangeDays, groupi
   // Fallback 2: compute the SAME way the Economics tab does — per-product fba_fee_manual (or auto)
   // times units, plus referral_fee_pct times revenue. This makes the dashboard consistent with the
   // Economics tab even when no Transaction Report has been uploaded for the range.
-  if (!amazonFees) {
+  let totalCogs = 0;
+  {
     const prodById = {}; products.forEach(p => { prodById[p.id] = p; });
     let fbaPart = 0, refPart = 0;
     rangeSales.forEach(s => {
@@ -18672,10 +18689,12 @@ async function acctDashRender(accountId, rangeSales, products, rangeDays, groupi
       const fpu = typeof acctFbaPerUnit === 'function' ? acctFbaPerUnit(p).fee : (parseFloat(p.fba_fee_manual) || 0);
       fbaPart += u * fpu;
       refPart += r * refPct;
+      totalCogs += u * (parseFloat(p.cogs) || 0);
     });
-    amazonFees = fbaPart + refPart;
+    if (!amazonFees) amazonFees = fbaPart + refPart;
   }
   const netProfit = totalRev
+    - totalCogs
     - amazonFees
     - (reportTotals.placement_fee||0)
     - (reportTotals.storage_fee||0)
