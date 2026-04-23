@@ -181,6 +181,163 @@
   :root.light [stroke="#a78bfa"], :root.light [fill="#a78bfa"] { stroke: #6d28d9 !important; fill: #6d28d9 !important; }
   :root.light [style*="color:#a78bfa"] { color: #6d28d9 !important; background: rgba(109,40,217,0.1) !important; border-color: rgba(109,40,217,0.2) !important; }
 
+  /* ═══════════════════════════════════════════════════════════════════
+     LIGHT-MODE CONTRAST PASS (2026-04-23)
+     Goal: no light-grey text or borders anywhere when :root.light is set.
+     Every label, placeholder, empty-state, sub-text, and table border is
+     pushed to a near-black tone so on a white page everything is readable.
+     ═══════════════════════════════════════════════════════════════════ */
+  :root.light {
+    --ink: #111111;         /* primary near-black for label / text overrides */
+    --ink2: #333333;        /* secondary */
+    --ink-border: #1f2937;  /* strong input / textarea border */
+    --ink-rule: #cbd5e1;    /* hairline row divider — darker than --border */
+  }
+  /* Hardcoded grey text anywhere in the document → dark in light mode */
+  :root.light [style*="color:#a0a2b0"],
+  :root.light [style*="color: #a0a2b0"],
+  :root.light [style*="color:#8890a8"],
+  :root.light [style*="color: #8890a8"],
+  :root.light [style*="color:#94a3b8"],
+  :root.light [style*="color: #94a3b8"],
+  :root.light [style*="color:#9ca3af"],
+  :root.light [style*="color: #9ca3af"],
+  :root.light [style*="color:#64748b"],
+  :root.light [style*="color: #64748b"],
+  :root.light [style*="color:#6b7280"],
+  :root.light [style*="color: #6b7280"],
+  :root.light [style*="color:#e8e9f0"],
+  :root.light [style*="color: #e8e9f0"],
+  :root.light [style*="color:#a8b2d1"],
+  :root.light [style*="color: #a8b2d1"],
+  :root.light [style*="color:#888"],
+  :root.light [style*="color: #888"],
+  :root.light [style*="color:#666"],
+  :root.light [style*="color: #666"],
+  :root.light [style*="color:var(--muted)"],
+  :root.light [style*="color: var(--muted)"] { color: var(--ink2) !important; }
+
+  /* CSS-class driven muted text: convert all --muted references */
+  :root.light .acct-section-title,
+  :root.light .acct-stat-label,
+  :root.light .acct-stat-sub,
+  :root.light .acct-kpi-label,
+  :root.light .acct-empty,
+  :root.light .acct-data-table th,
+  :root.light .acct-data-table td,
+  :root.light .settings-section-hd,
+  :root.light .settings-row-sub {
+    color: var(--ink) !important;
+    opacity: 1 !important;
+  }
+  :root.light .acct-section-title { font-weight: 700 !important; }
+  :root.light .acct-stat-label,
+  :root.light .acct-kpi-label,
+  :root.light .acct-data-table th,
+  :root.light .settings-section-hd { color: var(--ink) !important; font-weight: 700 !important; }
+  :root.light .acct-stat-sub,
+  :root.light .acct-empty,
+  :root.light .settings-row-sub { color: var(--ink2) !important; font-weight: 500 !important; }
+
+  /* Strengthen every light-grey border in light mode */
+  :root.light input,
+  :root.light textarea,
+  :root.light select,
+  :root.light .acct-filter-row select,
+  :root.light .acct-filter-row input,
+  :root.light .acct-data-table td input,
+  :root.light .wkr-cell-input,
+  :root.light .wkr-cell-select {
+    border-color: var(--ink-border) !important;
+    color: var(--ink) !important;
+  }
+  :root.light input::placeholder,
+  :root.light textarea::placeholder { color: #4a5568 !important; opacity: 0.85 !important; }
+
+  /* Stat cards / KPI cards / tables — darken borders */
+  :root.light .acct-stat-card,
+  :root.light .acct-kpi-card,
+  :root.light .acct-alert-chip {
+    border-color: #cbd5e1 !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  :root.light .acct-kpi-value,
+  :root.light .acct-stat-value { color: var(--ink) !important; }
+
+  /* Row dividers on data tables — the default #e2e8f0 is too faint */
+  :root.light .acct-data-table tr td,
+  :root.light .acct-data-table th,
+  :root.light table td,
+  :root.light table th {
+    border-bottom-color: #94a3b8 !important;
+  }
+  /* Stronger top border on table header rows */
+  :root.light .acct-data-table thead th,
+  :root.light table thead th { border-bottom: 2px solid var(--ink) !important; color: var(--ink) !important; font-weight: 700 !important; }
+
+  /* Tabs — kill the hover-invisibility bug on .acct-tab and the top nav */
+  :root.light .acct-tabs { background: #ffffff !important; border-bottom-color: #94a3b8 !important; }
+  :root.light .acct-tab { color: var(--ink2) !important; font-weight: 600 !important; }
+  :root.light .acct-tab:hover { color: var(--ink) !important; background: rgba(37,99,235,0.08) !important; }
+  :root.light .acct-tab.active { color: var(--accent) !important; border-bottom-color: var(--accent) !important; }
+
+  /* Dash range pills — same hover fix */
+  :root.light .acct-dash-range { color: var(--ink2) !important; font-weight: 600 !important; }
+  :root.light .acct-dash-range:hover { color: var(--ink) !important; background: rgba(37,99,235,0.06); }
+  :root.light .acct-dash-range.active { color: #fff !important; }
+
+  /* Section headers embedded as inline-styled divs inside Reports tab
+     (e.g. "APRIL 2026" month label lives in .acct-section-title with id=acctReportsMonthLbl) */
+  :root.light #acctReportsMonthLbl { color: var(--ink) !important; font-weight: 700 !important; font-size: 13px !important; letter-spacing: 1.5px !important; }
+
+  /* Reports P&L + Weekly-history tables — force visible row dividers regardless
+     of inline-style border-bottom color. Target the parent hosts.  */
+  :root.light #acctReportsPnlTable tr td,
+  :root.light #acctReportsPnlTable tr th,
+  :root.light #acctReportsWeeklyHistory tr td,
+  :root.light #acctReportsWeeklyHistory tr th { border-bottom: 1px solid #94a3b8 !important; }
+  :root.light #acctReportsPnlTable thead th,
+  :root.light #acctReportsWeeklyHistory thead th { border-bottom: 2px solid var(--ink) !important; color: var(--ink) !important; font-weight: 700 !important; }
+  :root.light #acctReportsPnlTable tr:hover td,
+  :root.light #acctReportsWeeklyHistory tr:hover td { background: rgba(37,99,235,0.05) !important; }
+
+  /* Empty-state messages (multiple patterns used) */
+  :root.light [class*="empty"]:not([class*="empty-action"]) { color: var(--ink2) !important; }
+  :root.light .acct-empty { color: var(--ink2) !important; font-weight: 500 !important; }
+  :root.light .acct-empty-action { color: var(--accent) !important; border-color: var(--accent) !important; font-weight: 700 !important; }
+
+  /* Input card shells (Overview tab — email/phone/notes) */
+  :root.light #acctOverviewGrid input,
+  :root.light #acctOverviewGrid textarea,
+  :root.light #acctOverviewGrid select { border: 1.5px solid var(--ink-border) !important; color: var(--ink) !important; background: #ffffff !important; }
+  :root.light #acctOverviewGrid input:focus,
+  :root.light #acctOverviewGrid textarea:focus { border-color: var(--accent) !important; outline: 2px solid rgba(37,99,235,0.15); }
+
+  /* Product card meta (ASIN · category) — common inline patterns */
+  :root.light [style*="font-size:8px"][style*="color:var(--muted)"],
+  :root.light [style*="font-size: 8px"][style*="color:var(--muted)"],
+  :root.light [style*="font-size:9px"][style*="color:var(--muted)"],
+  :root.light [style*="font-size: 9px"][style*="color:var(--muted)"] { color: var(--ink2) !important; font-weight: 500 !important; }
+
+  /* Reports slot card (the 4 drop cards) — darken borders + labels */
+  :root.light .acct-reports-slot { border-color: var(--ink-border) !important; background: #ffffff !important; }
+  :root.light #acctInvDropZone { border-color: var(--ink-border) !important; background: #ffffff !important; }
+  :root.light #acctInvDropZone div { color: var(--ink) !important; }
+
+  /* Dashed drop zones, generally */
+  :root.light [style*="border:1px dashed"] { border-color: var(--ink-border) !important; }
+  :root.light [style*="border: 1px dashed"] { border-color: var(--ink-border) !important; }
+
+  /* Chat / comment boxes: messaging tab + any generic textarea used for notes */
+  :root.light .msg-input,
+  :root.light .msg-thread-input,
+  :root.light #acctOverviewNotes,
+  :root.light textarea[placeholder*="note" i],
+  :root.light textarea[placeholder*="message" i],
+  :root.light input[placeholder*="search" i] { border: 1.5px solid var(--ink-border) !important; background: #ffffff !important; color: var(--ink) !important; }
+
+  /* === END LIGHT-MODE CONTRAST PASS === */
+
   /* Settings page styles */
   .settings-page { max-width: 680px; margin: 0 auto; padding: 32px 24px; }
   .settings-section-hd {
