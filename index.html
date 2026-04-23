@@ -17448,7 +17448,10 @@ window.calDeleteAudit = async function() {
       </div><!-- /overview panel -->
 
       <!-- SALES TAB — command center dashboard -->
-      <div class="acct-tab-panel" data-tabpanel="sales" id="acctPanelSales">
+      <div class="acct-tab-panel" data-tabpanel="sales" id="acctPanelSales"
+           ondragover="acctSalesDragOver(event)"
+           ondragleave="acctSalesDragLeave(event)"
+           ondrop="acctSalesDropHandler(event)">
 
         <!-- Reorder + stockout alerts -->
         <div id="acctDashAlerts" style="display:none;flex-direction:column;gap:8px"></div>
@@ -17540,6 +17543,26 @@ window.calDeleteAudit = async function() {
 
       <!-- INVENTORY TAB -->
       <div class="acct-tab-panel" data-tabpanel="inventory" id="acctPanelInventory">
+        <!-- FBA Inventory Health upload drop zone -->
+        <div id="acctInvDropZone"
+             style="background:var(--surface);border:1px dashed var(--border);border-radius:16px;padding:18px;margin-bottom:14px;cursor:pointer;transition:all 0.15s"
+             onclick="document.getElementById('acctInvDropInput').click()"
+             ondragover="acctInvDragOver(event)"
+             ondragleave="acctInvDragLeave(event)"
+             ondrop="acctInvDropHandler(event)">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="font-size:28px;line-height:1">\u2b07</div>
+            <div style="flex:1">
+              <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--text);margin-bottom:2px">Drop Amazon FBA Inventory Report here</div>
+              <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);line-height:1.5">
+                Seller Central \u2192 Reports \u2192 Fulfillment \u2192 Inventory Health (TSV/CSV).
+                Matches rows by ASIN/SKU and updates FBA on-hand here.
+              </div>
+            </div>
+            <div id="acctInvDropStatus" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted)"></div>
+          </div>
+          <input type="file" id="acctInvDropInput" accept=".tsv,.csv,.txt,.xlsx" style="display:none" onchange="acctInvDropFile(this.files[0])">
+        </div>
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
             <div class="acct-section-title" style="margin-bottom:0">Current Inventory</div>
@@ -18166,6 +18189,145 @@ async function acctSaveInventory() {
   await sb.from('angora_inventory_history').insert(rows.map(r => ({ ...r, source: 'manual', recorded_by: userId })));
   _acctCache.invDirty.clear();
   acctRenderInventoryTab();
+}
+
+// ── FBA Inventory Report drop-zone ────────────────────────────────────
+// Accepts the Amazon FBA "Inventory Health" report (TSV or CSV). Extracts
+// ASIN / SKU + afn-fulfillable-quantity / afn-reserved-quantity / afn-inbound-*
+// and upserts into angora_inventory (location='fba'). Matches to existing
+// products in the current account by ASIN first, then SKU.
+window.acctInvDragOver = function(e) {
+  e.preventDefault(); e.stopPropagation();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  const z = document.getElementById('acctInvDropZone');
+  if (z) { z.style.borderColor = 'var(--accent)'; z.style.background = 'rgba(107,143,255,0.06)'; }
+};
+window.acctInvDragLeave = function(e) {
+  e.preventDefault(); e.stopPropagation();
+  const z = document.getElementById('acctInvDropZone');
+  if (z) { z.style.borderColor = ''; z.style.background = ''; }
+};
+window.acctInvDropHandler = async function(e) {
+  e.preventDefault(); e.stopPropagation();
+  const z = document.getElementById('acctInvDropZone');
+  if (z) { z.style.borderColor = ''; z.style.background = ''; }
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!file) return;
+  await acctInvDropFile(file);
+};
+window.acctInvDropFile = async function(file) {
+  if (!file) return;
+  const status = document.getElementById('acctInvDropStatus');
+  if (status) status.textContent = 'Parsing ' + file.name + '\u2026';
+  try {
+    const text = await file.text();
+    const rows = _acctInvParseTabular(text);
+    if (!rows.length) { if (status) status.textContent = 'No rows parsed.'; alert('Could not parse rows from this file. Make sure it\u2019s an Amazon FBA Inventory Health report (TSV/CSV).'); return; }
+
+    const brand = _acctActiveBrand;
+    const accountId = await acctEnsureAccount(brand);
+    if (!accountId) { alert('Please sign in first.'); return; }
+    const products = _acctCache.products.length ? _acctCache.products : await acctLoadProducts(accountId);
+    if (products.length === 0) { alert('Seed products for this account first.'); return; }
+    const byAsin = {}; const bySku = {};
+    products.forEach(p => {
+      if (p.asin) byAsin[String(p.asin).toUpperCase().trim()] = p;
+      if (p.sku)  bySku[String(p.sku).toUpperCase().trim()]   = p;
+    });
+
+    const pickCol = (row, ...keys) => {
+      for (const k of keys) {
+        for (const rk of Object.keys(row)) {
+          if (rk.toLowerCase() === k.toLowerCase()) return row[rk];
+        }
+      }
+      return '';
+    };
+    const numOrZero = v => { const n = parseFloat(String(v||'').replace(/[,\s]/g,'')); return isNaN(n) ? 0 : n; };
+
+    const sb = window.angoraSupabase;
+    const { data: userRes } = await sb.auth.getUser();
+    const userId = userRes && userRes.user ? userRes.user.id : null;
+    const snapshotIso = new Date().toISOString().slice(0,10);
+    const upserts = [], history = [];
+    let matched = 0, skipped = 0;
+    rows.forEach(r => {
+      const asin = String(pickCol(r,'asin') || '').toUpperCase().trim();
+      const sku  = String(pickCol(r,'sku','seller-sku','mskul','msku') || '').toUpperCase().trim();
+      const prod = (asin && byAsin[asin]) || (sku && bySku[sku]);
+      if (!prod) { skipped++; return; }
+      const fba = numOrZero(pickCol(r,'afn-fulfillable-quantity','fulfillable-quantity','fulfillable quantity','quantity-available'));
+      const reserved = numOrZero(pickCol(r,'afn-reserved-quantity','reserved-quantity','reserved quantity'));
+      const inbound = numOrZero(pickCol(r,'afn-inbound-shipped-quantity','afn-inbound-working-quantity','inbound-shipped-quantity'));
+      // For now we only touch the FBA on-hand row; inbound/reserved don't have
+      // their own columns in angora_inventory yet \u2014 we stash them in notes.
+      upserts.push({
+        product_id: prod.id, location: 'fba', quantity: fba,
+        notes: `From FBA Inventory Report (${file.name}) \u2014 reserved:${reserved}, inbound:${inbound}`,
+        updated_by: userId, updated_at: new Date().toISOString()
+      });
+      history.push({
+        product_id: prod.id, location: 'fba', quantity: fba,
+        source: 'fba_inventory_report', recorded_by: userId
+      });
+      matched++;
+    });
+
+    if (!upserts.length) {
+      if (status) status.textContent = 'No matching SKUs found.';
+      alert(`No rows matched this account\u2019s products.\n\nParsed: ${rows.length} rows.\nMatched: 0\nSkipped: ${skipped}\n\nCheck that products in this account have the correct ASIN/SKU filled in.`);
+      return;
+    }
+
+    const { error: upErr } = await sb.from('angora_inventory').upsert(upserts, { onConflict: 'product_id,location' });
+    if (upErr) { alert('Save failed: ' + upErr.message); return; }
+    await sb.from('angora_inventory_history').insert(history);
+    if (status) status.textContent = `\u2713 Updated ${matched} SKU${matched===1?'':'s'} \u2022 ${skipped} skipped`;
+    setTimeout(() => acctRenderInventoryTab(), 200);
+  } catch (e) {
+    console.error('inv drop err', e);
+    if (status) status.textContent = 'Error: ' + (e.message || e);
+    alert('Failed to parse file: ' + (e.message || e));
+  }
+};
+// Lightweight CSV/TSV parser (autodetects delimiter) \u2014 good enough for Amazon
+// reports which use plain \\t or , with occasional quoted fields.
+function _acctInvParseTabular(text) {
+  if (!text) return [];
+  // Strip BOM + normalize line endings
+  text = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+  const lines = text.split('\n').filter(l => l.length > 0);
+  if (lines.length < 2) return [];
+  // Detect delimiter from the header line \u2014 TSV if any tab present, else comma.
+  const headerLine = lines[0];
+  const delim = headerLine.includes('\t') ? '\t' : ',';
+  function parseLine(line) {
+    if (delim === '\t') return line.split('\t');
+    // Naive CSV splitter with quote support
+    const out = []; let cur = ''; let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (inQ) {
+        if (c === '"') { if (line[i+1] === '"') { cur += '"'; i++; } else { inQ = false; } }
+        else cur += c;
+      } else {
+        if (c === '"') inQ = true;
+        else if (c === ',') { out.push(cur); cur = ''; }
+        else cur += c;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+  const header = parseLine(headerLine).map(h => h.trim());
+  const out = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseLine(lines[i]);
+    const row = {};
+    header.forEach((h, j) => { row[h] = (cols[j] || '').trim(); });
+    out.push(row);
+  }
+  return out;
 }
 
 function acctTimeAgo(ts) {
@@ -19013,6 +19175,50 @@ async function acctUploadReport() {
 
 // Back-compat alias in case any old button still calls acctUploadPdf()
 async function acctUploadPdf() { return acctUploadReport(); }
+
+// Unified handler: dispatch a dropped/picked file to the right parser.
+window.acctHandleDroppedReport = async function(file) {
+  if (!file) return;
+  const brand = _acctActiveBrand;
+  const accountId = await acctEnsureAccount(brand);
+  if (!accountId) return alert('Please sign in first.');
+  const products = _acctCache.products.length ? _acctCache.products : await acctLoadProducts(accountId);
+  _acctCache.products = products;
+  if (products.length === 0) return alert('Seed your products first \u2014 open Inventory tab.');
+  const name = (file.name || '').toLowerCase();
+  if (name.endsWith('.pdf') || file.type === 'application/pdf') {
+    await acctParseAmazonPdf(file);
+  } else if (name.endsWith('.csv') || name.endsWith('.xlsx') || name.endsWith('.xls')) {
+    await acctParseAmazonSheet(file);
+  } else {
+    alert('Unsupported file type. Use PDF, CSV, or XLSX.');
+  }
+};
+
+// Drag-drop on the Sales panel \u2014 accept Amazon PDF/CSV/XLSX anywhere in the tab.
+window.acctSalesDragOver = function(e) {
+  // Only react to file drags so we don't interfere with normal text selection.
+  if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+  e.preventDefault(); e.stopPropagation();
+  e.dataTransfer.dropEffect = 'copy';
+  const p = document.getElementById('acctPanelSales');
+  if (p) p.style.outline = '2px dashed var(--accent)';
+};
+window.acctSalesDragLeave = function(e) {
+  if (!e.dataTransfer) return;
+  const p = document.getElementById('acctPanelSales');
+  if (!p) return;
+  // Only clear when leaving the panel itself, not child elements
+  if (e.target === p) p.style.outline = '';
+};
+window.acctSalesDropHandler = async function(e) {
+  if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+  e.preventDefault(); e.stopPropagation();
+  const p = document.getElementById('acctPanelSales');
+  if (p) p.style.outline = '';
+  const file = e.dataTransfer.files[0];
+  await window.acctHandleDroppedReport(file);
+};
 
 // Parse Amazon CSV/XLSX Business Report into rows {asin,units,revenue,date}
 async function acctParseAmazonSheet(file) {
@@ -20031,43 +20237,89 @@ const ACCT_REPORT_TYPES = [
   { key: 'aged_inventory',    label: 'Aged Inventory Surcharge', sub: 'Seller Central → Reports → Fulfillment → Aged Inventory Surcharge', accept: '.csv' },
 ];
 
-let _acctReportsMonth = null; // 'YYYY-MM'
-let _acctReportsCache = {};   // { 'YYYY-MM': { transactions: row, ... } }
+let _acctReportsMonth = null; // 'YYYY-MM' (monthly mode) OR 'W:YYYY-MM-DD' (weekly — Monday of that week)
+let _acctReportsCache = {};   // { key: { transactions: row, ... } }
+let _acctReportsCadence = 'monthly'; // 'monthly' | 'weekly'
 
 function acctReportsCurrentMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
+function acctReportsCurrentWeek() {
+  // Monday-based week key: 'W:YYYY-MM-DD'
+  const d = new Date();
+  const day = d.getDay(); // 0 Sun .. 6 Sat
+  const diff = (day === 0 ? -6 : 1 - day); // shift to Monday
+  d.setDate(d.getDate() + diff);
+  return 'W:' + d.toISOString().slice(0,10);
+}
+function acctReportsIsWeekKey(k) { return typeof k === 'string' && k.startsWith('W:'); }
 function acctReportsFmtMonth(ym) {
+  if (acctReportsIsWeekKey(ym)) {
+    // Weekly label: "Week of Apr 20 – Apr 26, 2026"
+    const [y,m,d] = ym.slice(2).split('-').map(Number);
+    const start = new Date(y, m-1, d);
+    const end = new Date(y, m-1, d+6);
+    const sameYear = start.getFullYear() === end.getFullYear();
+    const sMo = start.toLocaleDateString('en-US', {month:'short'});
+    const eMo = end.toLocaleDateString('en-US', {month:'short'});
+    return `Week of ${sMo} ${start.getDate()} \u2013 ${sameYear ? eMo + ' ' + end.getDate() : eMo + ' ' + end.getDate() + ', ' + end.getFullYear()}, ${start.getFullYear()}`;
+  }
   const [y,m] = ym.split('-').map(Number);
   return new Date(y, m-1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 function acctReportsShiftMonth(delta) {
-  if (!_acctReportsMonth) _acctReportsMonth = acctReportsCurrentMonth();
-  const [y,m] = _acctReportsMonth.split('-').map(Number);
-  const d = new Date(y, m-1+delta, 1);
-  _acctReportsMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  if (!_acctReportsMonth) _acctReportsMonth = (_acctReportsCadence === 'weekly') ? acctReportsCurrentWeek() : acctReportsCurrentMonth();
+  if (acctReportsIsWeekKey(_acctReportsMonth)) {
+    const [y,m,d] = _acctReportsMonth.slice(2).split('-').map(Number);
+    const dt = new Date(y, m-1, d + 7*delta);
+    _acctReportsMonth = 'W:' + dt.toISOString().slice(0,10);
+  } else {
+    const [y,m] = _acctReportsMonth.split('-').map(Number);
+    const d = new Date(y, m-1+delta, 1);
+    _acctReportsMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  }
   acctRenderReportsTab();
 }
+window.acctReportsSetCadence = function(cadence) {
+  if (_acctReportsCadence === cadence) return;
+  _acctReportsCadence = cadence;
+  _acctReportsMonth = (cadence === 'weekly') ? acctReportsCurrentWeek() : acctReportsCurrentMonth();
+  acctRenderReportsTab();
+};
 
 async function acctRenderReportsTab() {
-  if (!_acctReportsMonth) _acctReportsMonth = acctReportsCurrentMonth();
+  if (!_acctReportsMonth) _acctReportsMonth = (_acctReportsCadence === 'weekly') ? acctReportsCurrentWeek() : acctReportsCurrentMonth();
   const lbl = document.getElementById('acctReportsMonthLbl');
   const slots = document.getElementById('acctReportsSlots');
   const pnl = document.getElementById('acctReportsPnlTable');
   if (!lbl || !slots) return;
   lbl.textContent = acctReportsFmtMonth(_acctReportsMonth);
+  // Inject / refresh the cadence toggle if not present
+  let cadHost = document.getElementById('acctReportsCadenceToggle');
+  if (!cadHost) {
+    const bar = lbl.parentElement && lbl.parentElement.parentElement;
+    if (bar) {
+      cadHost = document.createElement('div');
+      cadHost.id = 'acctReportsCadenceToggle';
+      cadHost.style.cssText = 'display:flex;gap:0;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:3px';
+      bar.insertBefore(cadHost, bar.firstChild);
+    }
+  }
+  if (cadHost) {
+    const mk = (key,label) => `<button onclick="acctReportsSetCadence('${key}')" style="padding:6px 14px;background:${_acctReportsCadence===key?'linear-gradient(135deg,#6b8fff,#a78bfa)':'transparent'};border:none;border-radius:8px;color:${_acctReportsCadence===key?'#fff':'var(--muted)'};font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1px;cursor:pointer;font-weight:${_acctReportsCadence===key?'700':'500'}">${label}</button>`;
+    cadHost.innerHTML = mk('monthly','Monthly') + mk('weekly','Weekly');
+  }
   const accountId = _acctCache.accountId;
   if (!accountId) { slots.innerHTML = '<div style="color:#a0a2b0;padding:20px;text-align:center">Account not loaded yet.</div>'; return; }
 
-  // Fetch last 12 months of uploads in one query, bucket by month
+  // Fetch ALL uploads for this account (history is preserved forever \u2014 per
+  // Alex: reports should never clear). Small price in query size, but keeps
+  // both monthly and weekly history visible.
   const sb = window.angoraSupabase; if (!sb) return;
-  const since = new Date(); since.setMonth(since.getMonth()-13);
-  const sinceYm = `${since.getFullYear()}-${String(since.getMonth()+1).padStart(2,'0')}`;
   const { data: all } = await sb.from('angora_report_uploads')
     .select('id, report_type, month, filename, row_count, totals, uploaded_at')
     .eq('account_id', accountId)
-    .gte('month', sinceYm)
     .order('month', { ascending: false });
   _acctReportsCache = {};
   (all || []).forEach(r => {
@@ -20104,6 +20356,67 @@ async function acctRenderReportsTab() {
 
   // 12-month P&L table
   acctReportsRenderPnlTable();
+
+  // Weekly upload history (below monthly P&L). Lists every weekly upload ever
+  // made for this account, grouped by week. Always visible \u2014 reports never clear.
+  acctReportsRenderWeeklyHistory();
+}
+
+function acctReportsRenderWeeklyHistory() {
+  let host = document.getElementById('acctReportsWeeklyHistory');
+  if (!host) {
+    const pnl = document.getElementById('acctReportsPnlTable');
+    if (!pnl) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+      <div class="acct-section-title" style="margin-top:24px;font-size:11px">Weekly Upload History</div>
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:8px;letter-spacing:1px">
+        EVERY WEEKLY UPLOAD EVER MADE \u00b7 HISTORY IS NEVER CLEARED
+      </div>
+      <div id="acctReportsWeeklyHistory" style="overflow-x:auto"></div>`;
+    pnl.parentElement.appendChild(wrap);
+    host = document.getElementById('acctReportsWeeklyHistory');
+  }
+  // Collect week rows from the cache
+  const weekKeys = Object.keys(_acctReportsCache).filter(k => acctReportsIsWeekKey(k)).sort().reverse();
+  if (weekKeys.length === 0) {
+    host.innerHTML = '<div style="color:var(--muted);font-family:\'DM Mono\',monospace;font-size:10px;padding:16px;text-align:center;border:1px dashed var(--border);border-radius:10px">No weekly uploads yet. Switch the cadence toggle above to WEEKLY and drop a report into any of the four slots to start your weekly history.</div>';
+    return;
+  }
+  const td = 'padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;font-family:\'DM Mono\',monospace';
+  const rows = weekKeys.map(k => {
+    const bucket = _acctReportsCache[k];
+    const t = bucket.transactions && bucket.transactions.totals || {};
+    const rev = t.revenue || 0; const fees = t.amazon_fees || 0; const units = t.units || 0;
+    const plc = bucket.inbound_placement && bucket.inbound_placement.totals && bucket.inbound_placement.totals.placement_fee || 0;
+    const sto = bucket.monthly_storage && bucket.monthly_storage.totals && bucket.monthly_storage.totals.storage_fee || 0;
+    const aged = bucket.aged_inventory && bucket.aged_inventory.totals && bucket.aged_inventory.totals.aged_fee || 0;
+    const filled = ACCT_REPORT_TYPES.filter(x => bucket[x.key]).length;
+    return `<tr onclick="_acctReportsMonth='${k}';_acctReportsCadence='weekly';acctRenderReportsTab();" style="cursor:pointer;${k===_acctReportsMonth?'background:rgba(167,139,250,0.08)':''}">
+      <td style="${td};text-align:left;font-weight:${k===_acctReportsMonth?'700':'500'}">${acctReportsFmtMonth(k)}</td>
+      <td style="${td};text-align:right">${units.toLocaleString()}</td>
+      <td style="${td};text-align:right">$${Number(rev).toFixed(2)}</td>
+      <td style="${td};text-align:right">$${Number(fees).toFixed(2)}</td>
+      <td style="${td};text-align:right">$${Number(plc).toFixed(2)}</td>
+      <td style="${td};text-align:right">$${Number(sto).toFixed(2)}</td>
+      <td style="${td};text-align:right">$${Number(aged).toFixed(2)}</td>
+      <td style="${td};text-align:right;color:${filled===4?'#4ade80':filled>=2?'#fbbf24':'var(--muted)'}">${filled}/4</td>
+    </tr>`;
+  }).join('');
+  const th = 'padding:8px 10px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--muted);text-align:right;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid var(--border)';
+  host.innerHTML = `<table style="width:100%;border-collapse:collapse">
+    <thead><tr>
+      <th style="${th};text-align:left">Week</th>
+      <th style="${th}">Units</th>
+      <th style="${th}">Revenue</th>
+      <th style="${th}">Amazon Fees</th>
+      <th style="${th}">Placement</th>
+      <th style="${th}">Storage</th>
+      <th style="${th}">Aged</th>
+      <th style="${th}">Slots</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
 }
 
 function acctReportsTotalsBadge(type, totals) {
@@ -20449,9 +20762,10 @@ function acctReportsExtractTotals(type, rows) {
 
 function acctReportsRenderPnlTable() {
   const host = document.getElementById('acctReportsPnlTable'); if (!host) return;
-  // Build month axis = last 12 months ending at _acctReportsMonth
+  // Build month axis = last 12 months ending at (current month or the selected month)
   const months = [];
-  const [y,m] = _acctReportsMonth.split('-').map(Number);
+  const monthKey = acctReportsIsWeekKey(_acctReportsMonth) ? acctReportsCurrentMonth() : _acctReportsMonth;
+  const [y,m] = monthKey.split('-').map(Number);
   for (let i=11; i>=0; i--) {
     const d = new Date(y, m-1-i, 1);
     months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
@@ -20490,7 +20804,7 @@ function acctReportsRenderPnlTable() {
         <th style="${th}">Margin</th>
       </tr></thead>
       <tbody>
-        ${rows.map(r => `<tr style="opacity:${r.complete?1:0.55}" onclick="_acctReportsMonth='${r.mo}';acctRenderReportsTab();" ${r.mo===_acctReportsMonth?'style="background:rgba(167,139,250,0.08)"':''}>
+        ${rows.map(r => `<tr style="opacity:${r.complete?1:0.55}" onclick="_acctReportsMonth='${r.mo}';_acctReportsCadence='monthly';acctRenderReportsTab();" ${r.mo===_acctReportsMonth?'style="background:rgba(167,139,250,0.08)"':''}>
           <td style="${td};text-align:left;cursor:pointer;font-weight:${r.mo===_acctReportsMonth?'700':'400'}">${acctReportsFmtMonth(r.mo)}${r.complete?'':' <span style=\"color:var(--muted);font-size:8px\">(partial)</span>'}</td>
           <td style="${td}">${fmt(r.rev)}</td>
           <td style="${td};color:#f87171">${fmt(-r.amzFees)}</td>
