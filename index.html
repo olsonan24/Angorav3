@@ -17586,11 +17586,13 @@ window.calDeleteAudit = async function() {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
             <div class="acct-section-title" style="margin-bottom:0">Per-SKU P&amp;L</div>
             <div style="display:flex;gap:8px;align-items:center">
-              <select id="acctEconRange" class="" onchange="acctRenderEconomicsTab()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:#e8e9f0;font-family:'DM Mono',monospace;font-size:10px">
+              <select id="acctEconRange" class="" onchange="acctEconClearCustomRange(); acctRenderEconomicsTab()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:#e8e9f0;font-family:'DM Mono',monospace;font-size:10px">
+                <option value="7">Last 7 days</option>
                 <option value="30" selected>Trailing 30 days</option>
                 <option value="90">Trailing 90 days</option>
                 <option value="365">Trailing 12 months</option>
               </select>
+              <span id="acctEconCustomPill" style="display:none;align-items:center;gap:6px;padding:5px 10px;background:rgba(107,143,255,0.12);border:1px solid rgba(107,143,255,0.4);border-radius:20px;font-family:'DM Mono',monospace;font-size:10px;color:#6b8fff;cursor:default"></span>
               <button class="acct-save-btn" onclick="acctRecalcEconomics()">\u21bb Recalculate</button>
             </div>
           </div>
@@ -17752,6 +17754,8 @@ async function acctEnsureAccount(brand) {
     // Economics tab per-account roll-up — was leaking ERAS numbers into other accounts
     _acctCache.econByProd = {};
     _acctCache.econRange  = 30;
+    _acctCache.econCustomRange = null;
+    _acctCache.econRangeLabel  = null;
     // Messages realtime channel + thread — was leaking ERAS messages into other accounts
     if (_acctCache.msgChannel && window.angoraSupabase) {
       try { window.angoraSupabase.removeChannel(_acctCache.msgChannel); } catch(e){}
@@ -17844,11 +17848,24 @@ async function acctLoadInventory(productIds) {
   return data || [];
 }
 
-async function acctLoadDailySales(productIds, daysBack) {
+async function acctLoadDailySales(productIds, daysBackOrRange) {
+  // Second arg is either a trailing-N-days integer OR a {start, end} ISO-date range.
+  // The range form is used when a user drills in from a Sales bar click or sets
+  // a custom period — we need the *exact* window, not "today minus N".
   if (!productIds.length) return [];
   const sb = window.angoraSupabase; if (!sb) return [];
-  const since = new Date(); since.setDate(since.getDate() - (daysBack || 90));
-  const { data, error } = await sb.from('angora_daily_sales').select('*').in('product_id', productIds).gte('sale_date', since.toISOString().slice(0,10)).order('sale_date');
+  let startIso = null, endIso = null;
+  if (daysBackOrRange && typeof daysBackOrRange === 'object' && daysBackOrRange.start) {
+    startIso = daysBackOrRange.start;
+    endIso   = daysBackOrRange.end || null;
+  } else {
+    const days = daysBackOrRange || 90;
+    const since = new Date(); since.setDate(since.getDate() - days);
+    startIso = since.toISOString().slice(0,10);
+  }
+  let q = sb.from('angora_daily_sales').select('*').in('product_id', productIds).gte('sale_date', startIso);
+  if (endIso) q = q.lte('sale_date', endIso);
+  const { data, error } = await q.order('sale_date');
   if (error) { console.warn('acctLoadDailySales err', error); return []; }
   return data || [];
 }
@@ -18466,11 +18483,51 @@ async function acctRenderSalesTab() {
     datasets.push({ type:'line', label:'Forecast', data: fcData, borderColor:'#a78bfa', backgroundColor:'rgba(167,139,250,0.15)', borderDash:[6,4], fill:false, tension:0.3, pointRadius:3, pointBackgroundColor:'#a78bfa', pointBorderColor:'#fff', pointBorderWidth:1, borderWidth:2, order:-1 });
   }
 
+  // Compute the ISO start/end date range for a given bucket key + grouping.
+  // Used when the user clicks a bar to drill into Economics for that exact period.
+  function bucketDateRange(key, grp) {
+    const pad = n => String(n).padStart(2,'0');
+    if (grp === 'day') return { start: key, end: key };
+    if (grp === 'week') {
+      const s = new Date(key + 'T00:00:00');
+      const e = new Date(s); e.setDate(e.getDate() + 6);
+      return { start: s.toISOString().slice(0,10), end: e.toISOString().slice(0,10) };
+    }
+    if (grp === 'month') {
+      const [y,m] = key.split('-').map(Number);
+      const s = new Date(y, m-1, 1);
+      const e = new Date(y, m, 0); // last day of month
+      return { start: `${s.getFullYear()}-${pad(s.getMonth()+1)}-${pad(s.getDate())}`, end: `${e.getFullYear()}-${pad(e.getMonth()+1)}-${pad(e.getDate())}` };
+    }
+    if (grp === 'quarter') {
+      const [yStr, qStr] = key.split('-Q'); const y = +yStr, q = +qStr;
+      const sMonth = (q-1)*3;
+      const s = new Date(y, sMonth, 1);
+      const e = new Date(y, sMonth + 3, 0);
+      return { start: `${s.getFullYear()}-${pad(s.getMonth()+1)}-${pad(s.getDate())}`, end: `${e.getFullYear()}-${pad(e.getMonth()+1)}-${pad(e.getDate())}` };
+    }
+    if (grp === 'year') {
+      return { start: key + '-01-01', end: key + '-12-31' };
+    }
+    return { start: key, end: key };
+  }
+
   _acctCache.salesChart = new Chart(canvas, {
     type: isBar ? 'bar' : 'line',
     data: { labels, datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
+      onClick: (evt, elements, chart) => {
+        if (!elements || !elements.length) return;
+        const idx = elements[0].index;
+        const key = sortedKeys[idx]; if (!key) return;
+        const r = bucketDateRange(key, grouping);
+        const label = bucketLabel(key, grouping);
+        window.acctEconDrillToRange(r.start, r.end, label);
+      },
+      onHover: (evt, elements) => {
+        evt.native && evt.native.target && (evt.native.target.style.cursor = elements.length ? 'pointer' : 'default');
+      },
       animation: {
         duration: 900,
         easing: 'easeOutQuart',
@@ -19120,12 +19177,21 @@ async function acctParseAmazonPdf(file) {
     candidateRows.push({ line, asin, numbers: nums });
   });
 
-  // Try to detect date range from text
-  let reportDate = new Date().toISOString().slice(0,10);
+  // Try to detect date range from text. Never fall back to "today" — accounting
+  // requires the real report date. If we can't find one we leave this BLANK and
+  // force the user to pick a date in the preview modal before saving.
+  let reportDate = '';
   const dateMatch = allText.match(/(\w+ \d{1,2},? \d{4})\s*[-–to]+\s*(\w+ \d{1,2},? \d{4})/i)
-                   || allText.match(/(\d{4}-\d{2}-\d{2})\s*[-–to]+\s*(\d{4}-\d{2}-\d{2})/);
+                   || allText.match(/(\d{4}-\d{2}-\d{2})\s*[-–to]+\s*(\d{4}-\d{2}-\d{2})/)
+                   || allText.match(/\bfor\s+(\w+ \d{1,2},? \d{4})/i)
+                   || allText.match(/\b(\d{4}-\d{2}-\d{2})\b/)
+                   || allText.match(/\b(\w+ \d{1,2},? \d{4})\b/);
   if (dateMatch) {
-    try { reportDate = new Date(dateMatch[2]).toISOString().slice(0,10); } catch(e){}
+    const picked = dateMatch[2] || dateMatch[1];
+    try {
+      const d = new Date(picked);
+      if (!isNaN(d.getTime())) reportDate = d.toISOString().slice(0,10);
+    } catch(e){}
   }
 
   // Match candidates to our products by ASIN
@@ -19169,9 +19235,9 @@ function acctOpenPdfPreview(rows, filename, rawText) {
       <div style="padding:16px 22px;overflow-y:auto;flex:1">
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;font-family:'DM Mono',monospace;font-size:11px;color:#e8e9f0">
           <label>Date for all rows:</label>
-          <input id="acctPdfDate" type="date" value="${rows[0] ? rows[0].date : new Date().toISOString().slice(0,10)}" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:6px 9px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px">
+          <input id="acctPdfDate" type="date" value="${rows[0] && rows[0].date ? rows[0].date : ''}" required style="background:var(--surface2);border:1px solid ${rows[0] && rows[0].date ? 'var(--border)' : '#ff4d6d'};border-radius:7px;padding:6px 9px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px">
           <button onclick="acctPdfApplyDate()" class="acct-save-btn" style="margin-left:0">Apply to all</button>
-          <span style="margin-left:auto;font-size:10px;color:#a0a2b0">Only rows with a matched product will be saved.</span>
+          <span style="margin-left:auto;font-size:10px;color:${rows[0] && rows[0].date ? '#a0a2b0' : '#ff4d6d'}">${rows[0] && rows[0].date ? 'Only rows with a matched product will be saved.' : '\u26a0 No date detected in the PDF \u2014 pick the report date before saving.'}</span>
         </div>
         <div style="overflow-x:auto">
           <table class="acct-data-table" style="width:100%">
@@ -19233,7 +19299,7 @@ async function acctPdfSaveRows() {
   // marketplace variant, etc.) and Postgres rejects an upsert that tries to
   // affect the same conflict target twice in one statement.
   const agg = {};
-  let rawSelected = 0, merged = 0;
+  let rawSelected = 0, merged = 0, skippedNoDate = 0;
   bodyRows.forEach((tr) => {
     const i = parseInt(tr.dataset.row);
     const r = rows[i]; if (!r || !r.productId) return;
@@ -19242,6 +19308,8 @@ async function acctPdfSaveRows() {
     const units = parseInt(tr.querySelector('.acctPdfUnits').value) || 0;
     const revenue = parseFloat(tr.querySelector('.acctPdfRev').value) || 0;
     if (units === 0 && revenue === 0) return;
+    // Hard guard: never stamp a row with "today". Accounting requires the real date.
+    if (!date) { skippedNoDate++; return; }
     rawSelected++;
     const key = `${r.productId}|${date}`;
     if (agg[key]) {
@@ -19253,7 +19321,14 @@ async function acctPdfSaveRows() {
     }
   });
   const inserts = Object.values(agg);
+  if (skippedNoDate > 0 && inserts.length === 0) {
+    alert(`${skippedNoDate} row${skippedNoDate===1?'':'s'} skipped because no date was set. Enter the report date above and click "Apply to all", then save.`);
+    return;
+  }
   if (inserts.length === 0) { alert('No rows selected / no units > 0.'); return; }
+  if (skippedNoDate > 0) {
+    if (!confirm(`${skippedNoDate} row${skippedNoDate===1?'':'s'} had no date and will be skipped. Save the ${inserts.length} row${inserts.length===1?'':'s'} that do have dates?`)) return;
+  }
   // Round revenue to 2 decimals (numeric(12,2))
   inserts.forEach(row => { row.revenue = Math.round(row.revenue * 100) / 100; });
   const { error } = await sb.from('angora_daily_sales').upsert(inserts, { onConflict: 'product_id,sale_date' });
@@ -19365,10 +19440,21 @@ async function acctRenderEconomicsTab() {
   const tfoot = document.getElementById('acctEconTfoot');
   const empty = document.getElementById('acctEconEmpty');
   const summary = document.getElementById('acctEconSummary');
+  // Check for a custom range (set by Sales-bar drill-in). When active, we load
+  // sales by explicit start/end dates instead of "trailing N days".
+  const customRange = _acctCache.econCustomRange;
   const range = parseInt(document.getElementById('acctEconRange').value) || 30;
+  const pill = document.getElementById('acctEconCustomPill');
+  if (customRange && pill) {
+    pill.style.display = 'inline-flex';
+    pill.innerHTML = `<span>${customRange.label || (customRange.start + ' \u2192 ' + customRange.end)}</span><span style="cursor:pointer;font-weight:700;color:#ff4d6d;margin-left:4px" onclick="acctEconClearCustomRange(); acctRenderEconomicsTab()" title="Clear filter">\u2715</span>`;
+  } else if (pill) {
+    pill.style.display = 'none'; pill.innerHTML = '';
+  }
   if (products.length === 0) { tbody.innerHTML = ''; empty.style.display = 'block'; summary.innerHTML = ''; return; }
   const productIds = products.map(p => p.id);
-  const sales = await acctLoadDailySales(productIds, range);
+  const salesArg = customRange ? { start: customRange.start, end: customRange.end } : range;
+  const sales = await acctLoadDailySales(productIds, salesArg);
   if (sales.length === 0) { tbody.innerHTML = ''; empty.style.display = 'block'; summary.innerHTML = ''; tfoot.innerHTML = ''; return; }
   empty.style.display = 'none';
 
@@ -19402,6 +19488,7 @@ async function acctRenderEconomicsTab() {
   });
   _acctCache.econByProd = byProd;
   _acctCache.econRange = range;
+  _acctCache.econRangeLabel = customRange ? (customRange.label || (customRange.start + ' \u2192 ' + customRange.end)) : `Last ${range} days`;
 
   const ANGORA_PCT = 0.05;
   Object.values(byProd).filter(g => g.units > 0).sort((a,b) => b.netRev - a.netRev).forEach(g => {
@@ -19456,7 +19543,7 @@ function _acctRenderEconRows() {
   const $2 = v => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   tfoot.innerHTML = `<tr style="border-top:2px solid var(--border)"><td style="font-weight:700;color:var(--accent)">TOTAL</td><td style="text-align:right;font-weight:700">${totU.toLocaleString()}</td><td style="text-align:right;font-weight:700">$${$2(totRev)}</td><td style="text-align:right">-$${$2(totFba)}</td><td style="text-align:right">-$${$2(totRef)}</td><td style="text-align:right">-$${$2(totCogs)}</td><td style="text-align:right">-$${$2(totPp)}</td><td style="text-align:right">-$${$2(totAds)}</td><td style="text-align:right">-$${$2(totAngora)}</td><td style="text-align:right;font-weight:700;color:${totNet>=0?'#4dffb4':'#ff4d6d'}">$${$2(totNet)}</td><td style="text-align:right;font-weight:700">${totMargin.toFixed(2)}%</td></tr>`;
   summary.innerHTML = `
-    <div class="acct-stat-card"><div class="acct-stat-label">Net Revenue</div><div class="acct-stat-value">$${$2(totRev)}</div><div class="acct-stat-sub">Last ${range} days</div></div>
+    <div class="acct-stat-card"><div class="acct-stat-label">Net Revenue</div><div class="acct-stat-value">$${$2(totRev)}</div><div class="acct-stat-sub">${_acctCache.econRangeLabel || ('Last ' + range + ' days')}</div></div>
     <div class="acct-stat-card"><div class="acct-stat-label">Angora Billable (5%)</div><div class="acct-stat-value" style="color:var(--accent)">$${$2(totAngora)}</div><div class="acct-stat-sub">5% of net revenue</div></div>
     <div class="acct-stat-card"><div class="acct-stat-label">Net Profit</div><div class="acct-stat-value" style="color:${totNet>=0?'#4dffb4':'#ff4d6d'}">$${$2(totNet)}</div></div>
     <div class="acct-stat-card"><div class="acct-stat-label">Blended Margin</div><div class="acct-stat-value">${totMargin.toFixed(2)}%</div></div>
@@ -19490,6 +19577,20 @@ function acctUpdateAdOverride(productId, rawValue) {
 }
 
 async function acctRecalcEconomics() { await acctRenderEconomicsTab(); }
+
+// Clear any custom date range override (set by Sales bar click).
+window.acctEconClearCustomRange = function() {
+  if (_acctCache) { _acctCache.econCustomRange = null; _acctCache.econRangeLabel = null; }
+};
+
+// Drill into Economics from a Sales bar click. Takes ISO start/end dates +
+// a human label (e.g. "Wk of Apr 20") and switches the account to the
+// Economics tab filtered to that exact range.
+window.acctEconDrillToRange = function(startIso, endIso, label) {
+  if (!startIso || !endIso) return;
+  _acctCache.econCustomRange = { start: startIso, end: endIso, label: label || (startIso + ' \u2192 ' + endIso) };
+  try { acctSwitchTab('economics'); } catch(e) { acctRenderEconomicsTab(); }
+};
 
 // ── MESSAGES TAB ──────────────────────────────────────────────────────────
 async function acctRenderMessagesTab() {
@@ -19986,7 +20087,7 @@ async function acctRenderReportsTab() {
     const meta = up ? `<div style="font-size:9px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:6px">${up.filename || ''} · ${up.row_count||0} rows</div>` : '';
     const replaceBtn = up ? `<button onclick="acctReportsReplaceUpload('${t.key}')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:9px;color:var(--muted);cursor:pointer;margin-top:8px;font-family:'DM Mono',monospace;letter-spacing:1px">REPLACE</button>` : '';
     return `
-      <div id="acctReportsSlot_${t.key}" class="acct-reports-slot" style="background:var(--surface2);border:1px dashed ${up?'rgba(74,222,128,0.4)':'var(--border)'};border-radius:12px;padding:14px;cursor:${up?'default':'pointer'};transition:all 0.15s;min-height:120px" ${up?'':`onclick="acctReportsPickFile('${t.key}')"`}>
+      <div id="acctReportsSlot_${t.key}" class="acct-reports-slot" data-slot-key="${t.key}" style="background:var(--surface2);border:1px dashed ${up?'rgba(74,222,128,0.4)':'var(--border)'};border-radius:12px;padding:14px;cursor:pointer;transition:all 0.15s;min-height:120px" onclick="acctReportsPickFile('${t.key}')" ondragover="acctReportsDragOver(event,'${t.key}')" ondragleave="acctReportsDragLeave(event,'${t.key}')" ondrop="acctReportsHandleDrop(event,'${t.key}')">
         <div style="display:flex;align-items:start;justify-content:space-between;gap:8px;margin-bottom:8px">
           <div>
             <div style="font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">${t.label}</div>
@@ -20034,6 +20135,30 @@ function acctReportsPickFile(type) {
 window.acctReportsReplaceUpload = function(type) {
   if (!confirm('Replace the existing upload for this month?')) return;
   acctReportsPickFile(type);
+};
+
+// ── Drag-and-drop for Reports slots ────────────────────────────────
+window.acctReportsDragOver = function(e, type) {
+  e.preventDefault(); e.stopPropagation();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  const slot = document.getElementById('acctReportsSlot_' + type);
+  if (slot) { slot.style.borderColor = 'var(--accent)'; slot.style.background = 'rgba(107,143,255,0.06)'; }
+};
+window.acctReportsDragLeave = function(e, type) {
+  e.preventDefault(); e.stopPropagation();
+  const slot = document.getElementById('acctReportsSlot_' + type);
+  if (slot) { slot.style.borderColor = ''; slot.style.background = ''; }
+};
+window.acctReportsHandleDrop = async function(e, type) {
+  e.preventDefault(); e.stopPropagation();
+  const slot = document.getElementById('acctReportsSlot_' + type);
+  if (slot) { slot.style.borderColor = ''; slot.style.background = ''; }
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!file) return;
+  const month = _acctReportsMonth;
+  const existing = _acctReportsCache[month] && _acctReportsCache[month][type];
+  if (existing && !confirm('Replace the existing upload for this month?')) return;
+  await acctReportsHandleFile(type, file);
 };
 
 async function acctReportsHandleFile(type, file) {
