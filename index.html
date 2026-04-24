@@ -18114,7 +18114,20 @@ async function acctRenderInventoryTab() {
   Object.keys(salesByPid).forEach(pid => {
     const rows = salesByPid[pid];
     const total = rows.reduce((a,r) => a + (r.units_sold || 0), 0);
-    velByPid[pid] = rows.length ? (total / 12) : 0; // avg per week over last 12 weeks
+    if (!rows.length) { velByPid[pid] = 0; return; }
+    // Velocity = total units / weeks of data we actually have (clamped 1..12).
+    // Previously divided unconditionally by 12 which under-estimates badly when
+    // a SKU only has a single CSV upload with one day of data. Spanning the
+    // distinct sale_dates gives the honest per-week rate. Each sale_date is a
+    // single day in the schema, so first→last +1 day is the coverage.
+    const dates = rows.map(r => String(r.sale_date)).sort();
+    const [y1,m1,d1] = dates[0].slice(0,10).split('-').map(Number);
+    const [y2,m2,d2] = dates[dates.length-1].slice(0,10).split('-').map(Number);
+    const first = new Date(y1, (m1||1)-1, d1||1);
+    const last  = new Date(y2, (m2||1)-1, d2||1);
+    const daysSpan = Math.max(1, Math.round((last - first) / 86400000) + 1);
+    const weeksCovered = Math.max(1, Math.min(12, daysSpan / 7));
+    velByPid[pid] = total / weeksCovered;
   });
 
   // Inventory lookup: { pid: { fba, awd, angora, reserved } }
@@ -18264,6 +18277,7 @@ function acctOpenProductEdit(productId) {
         ${fld('prodPrice','Sell Price ($)', p.price || 0, 'number', 'step="0.01" min="0"')}
         ${fld('prodRef','Referral Fee %', p.referral_fee_pct ?? 15, 'number', 'step="0.1" min="0" max="45"', 'Amazon category referral (default 15%)')}
         ${fld('prodFba','FBA Fee ($/unit)', p.fba_fee_manual ?? '', 'number', 'step="0.01" min="0"', 'Enter the FBA fulfillment fee per unit. Referral, margin, net profit auto-calc off this value.')}
+        ${fld('prodLead','Lead Time (days)', p.lead_time_days ?? 60, 'number', 'step="1" min="1" max="365"', 'Days from PO to FBA inbound. Drives Reorder Point math on the Inventory tab. Default 60.')}
         <div style="grid-column:1/-1;height:1px;background:var(--border);margin:4px 0"></div>
         <div style="grid-column:1/-1;font-family:\\'DM Mono\\',monospace;font-size:9px;text-transform:uppercase;letter-spacing:2px;color:var(--accent);margin-bottom:-6px">Dimensions & Weight (for auto-FBA)</div>
         ${fld('prodWeight','Weight (oz)', p.weight_oz ?? '', 'number', 'step="0.01" min="0"')}
@@ -18295,6 +18309,7 @@ async function acctSaveProductEdit(productId) {
     price:   numOrNull(v('prodPrice')),
     referral_fee_pct: numOrNull(v('prodRef')),
     fba_fee_manual:   numOrNull(v('prodFba')),
+    lead_time_days:   (() => { const n = parseInt(v('prodLead')); return isNaN(n) ? null : Math.max(1, Math.min(365, n)); })(),
     weight_oz: numOrNull(v('prodWeight')),
     length_in: numOrNull(v('prodLen')),
     width_in:  numOrNull(v('prodWid')),
@@ -18305,12 +18320,12 @@ async function acctSaveProductEdit(productId) {
   if (msg) msg.textContent = 'Saving\u2026';
   const { error } = await sb.from('angora_products').update(payload).eq('id', productId);
   if (error) {
-    // Graceful fallback if fba_fee_manual/referral_fee_pct columns not yet created
-    if (/fba_fee_manual|referral_fee_pct/.test(String(error.message||''))) {
-      delete payload.fba_fee_manual; delete payload.referral_fee_pct;
+    // Graceful fallback if fba_fee_manual / referral_fee_pct / lead_time_days columns not yet created
+    if (/fba_fee_manual|referral_fee_pct|lead_time_days/.test(String(error.message||''))) {
+      delete payload.fba_fee_manual; delete payload.referral_fee_pct; delete payload.lead_time_days;
       const r2 = await sb.from('angora_products').update(payload).eq('id', productId);
       if (!r2.error) {
-        if (msg) msg.textContent = 'Saved (fba_fee_manual / referral_fee_pct columns not yet added \u2014 skipped). Run the pending ALTER TABLE SQL to enable.';
+        if (msg) msg.textContent = 'Saved (fba_fee_manual / referral_fee_pct / lead_time_days columns not yet added \u2014 skipped). Run the pending ALTER TABLE SQL to enable.';
       } else {
         if (msg) msg.textContent = 'Error: ' + r2.error.message;
         return;
@@ -19392,7 +19407,10 @@ async function acctParseAmazonSheet(file) {
       uploadUrl = pub.publicUrl;
     }
   } catch(e) { console.warn('storage upload err', e); }
-  await sb.from('angora_pdf_uploads').insert({ account_id: _acctCache.accountId, uploaded_by: userId, file_name: file.name, file_path: uploadUrl || path, report_type: 'business_report_csv', status: 'processing' }).then(()=>{}, ()=>{});
+  try {
+    const { data: _upRow } = await sb.from('angora_pdf_uploads').insert({ account_id: _acctCache.accountId, uploaded_by: userId, file_name: file.name, file_path: uploadUrl || path, report_type: 'business_report_csv', status: 'processing' }).select('id').single();
+    window._acctPdfUploadId = _upRow ? _upRow.id : null;
+  } catch(e) { window._acctPdfUploadId = null; }
 
   const buf = await file.arrayBuffer();
   // For CSV let XLSX auto-detect; for XLSX read as array buffer
@@ -19502,7 +19520,10 @@ async function acctParseAmazonPdf(file) {
       uploadUrl = pub.publicUrl;
     }
   } catch(e) { console.warn('storage upload err', e); }
-  await sb.from('angora_pdf_uploads').insert({ account_id: _acctCache.accountId, uploaded_by: userId, file_name: file.name, file_path: uploadUrl || path, report_type: 'business_report', status: 'processing' }).then(()=>{}, ()=>{});
+  try {
+    const { data: _upRow } = await sb.from('angora_pdf_uploads').insert({ account_id: _acctCache.accountId, uploaded_by: userId, file_name: file.name, file_path: uploadUrl || path, report_type: 'business_report', status: 'processing' }).select('id').single();
+    window._acctPdfUploadId = _upRow ? _upRow.id : null;
+  } catch(e) { window._acctPdfUploadId = null; }
 
   // Extract text via pdf.js
   const arr = await file.arrayBuffer();
@@ -19696,6 +19717,17 @@ async function acctPdfSaveRows() {
   inserts.forEach(row => { row.revenue = Math.round(row.revenue * 100) / 100; });
   const { error } = await sb.from('angora_daily_sales').upsert(inserts, { onConflict: 'product_id,sale_date' });
   if (error) return alert('Save failed: ' + error.message);
+  // Mark the originating upload row as completed so it doesn't sit in `processing` forever.
+  if (window._acctPdfUploadId) {
+    try {
+      await sb.from('angora_pdf_uploads').update({
+        status: 'completed',
+        processed_at: new Date().toISOString(),
+        extracted_data: { rows_saved: inserts.length, merged, skipped_no_date: skippedNoDate, saved_at: new Date().toISOString() },
+      }).eq('id', window._acctPdfUploadId);
+    } catch(e) { console.warn('upload status update err', e); }
+    window._acctPdfUploadId = null;
+  }
   document.getElementById('acctPdfModal').remove();
   const note = merged > 0 ? ` (merged ${merged} duplicate ASIN line${merged===1?'':'s'} into existing rows)` : '';
   alert(`Saved ${inserts.length} sales row${inserts.length===1?'':'s'} from report.${note}`);
