@@ -14367,6 +14367,9 @@ async function acctProfileOpen(brand, specialist) {
   _acctActiveBrand = brand;
   // Reset cache on new account
   _acctCache = { accountId: null, brand: null, products: [], dailySales: [], inventory: [], economics: [], messages: [], salesChart: null, invDirty: new Map() };
+  // Hard-clear every per-account DOM panel that could otherwise show the previous
+  // account's data while the new account's queries run. Sentinel: clearOnOpen.
+  try { if (typeof acctClearSalesDashboard === 'function') acctClearSalesDashboard(); } catch(e){}
   const overlay = document.getElementById('acctProfileOverlay');
   const panel   = document.getElementById('acctProfilePanel');
   if (!overlay || !panel) { console.error('acctProfileOpen: overlay or panel not found'); return; }
@@ -18617,6 +18620,19 @@ async function acctSyncMondayInventory() {
 }
 
 // ── SALES TAB ─────────────────────────────────────────────────────────────
+// Wipes every per-account panel on the Sales tab so we never leave the previous
+// account's KPIs / donut / Top SKUs / reorder alerts on screen when the new
+// account has no data. Sentinel: clearSalesDashboard.
+function acctClearSalesDashboard() {
+  const ids = ['acctDashKpis', 'acctDashAlerts', 'acctDashFeeLegend', 'acctDashTopSkus', 'acctSalesStats'];
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+  const alerts = document.getElementById('acctDashAlerts'); if (alerts) alerts.style.display = 'none';
+  if (_acctCache.dashFeeChart) { try { _acctCache.dashFeeChart.destroy(); } catch(e){} _acctCache.dashFeeChart = null; }
+  if (_acctCache.salesChart)   { try { _acctCache.salesChart.destroy(); }   catch(e){} _acctCache.salesChart = null; }
+  const chartWrap = document.querySelector('#acctPanelSales .acct-chart-wrap');
+  if (chartWrap) chartWrap.style.display = 'none';
+}
+
 async function acctRenderSalesTab() {
   const brand = _acctActiveBrand;
   const accountId = await acctEnsureAccount(brand);
@@ -18631,8 +18647,7 @@ async function acctRenderSalesTab() {
   const chartWrap = document.querySelector('#acctPanelSales .acct-chart-wrap');
   if (products.length === 0) {
     empty.style.display = 'block';
-    stats.innerHTML = '';
-    chartWrap.style.display = 'none';
+    acctClearSalesDashboard();
     return;
   }
   // populate sku dropdown
@@ -18651,8 +18666,13 @@ async function acctRenderSalesTab() {
 
   if (sales.length === 0) {
     empty.style.display = 'block';
-    chartWrap.style.display = 'none';
-    stats.innerHTML = '';
+    // Don't leave the previous account's KPI cards / donut / Top SKUs on screen.
+    // Even if THIS account has products but no daily sales, we still want a clean slate.
+    // The dashboard re-renders below only when there ARE sales — Top SKUs derived from
+    // products+report_uploads alone (which can leak across accounts via report_uploads
+    // when reports were uploaded under a different account_id) is intentionally suppressed
+    // until per-product daily_sales rows exist for the selected range.
+    acctClearSalesDashboard();
     return;
   }
   empty.style.display = 'none';
