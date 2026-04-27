@@ -8843,6 +8843,10 @@ async function refreshActiveToolAfterAuthChange(detail = {}) {
 window.addEventListener('angora-auth-changed', (event) => {
   clearTimeout(angoraAuthRefreshTimer);
   const detail = event?.detail || {};
+  // Cache the authed user's email so the Client Report's PSM signature personalises correctly.
+  if (typeof _acctRefreshCurrentUserEmail === 'function') {
+    _acctRefreshCurrentUserEmail();
+  }
   angoraAuthRefreshTimer = setTimeout(() => {
     refreshActiveToolAfterAuthChange(detail).catch((error) => {
       console.warn('[Angora][Auth Sync] UI refresh failed:', error?.message || error);
@@ -18282,6 +18286,19 @@ function acctOpenProductEdit(productId) {
         ${fld('prodFba','FBA Fee ($/unit)', p.fba_fee_manual ?? '', 'number', 'step="0.01" min="0"', 'Enter the FBA fulfillment fee per unit. Referral, margin, net profit auto-calc off this value.')}
         ${fld('prodLead','Lead Time (days)', p.lead_time_days ?? 60, 'number', 'step="1" min="1" max="365"', 'Days from PO to FBA inbound. Drives Reorder Point math on the Inventory tab. Default 60.')}
         <div style="grid-column:1/-1;height:1px;background:var(--border);margin:4px 0"></div>
+        <div style="grid-column:1/-1;font-family:\\'DM Mono\\',monospace;font-size:9px;text-transform:uppercase;letter-spacing:2px;color:var(--accent);margin-bottom:-6px">Inventory on hand</div>
+        ${(() => {
+          // Pull existing on-hand counts so the modal pre-fills with the latest values.
+          const inv = (_acctCache.inventory || []).filter(r => r.product_id === p.id);
+          const get = loc => { const r = inv.find(x => x.location === loc); return r ? Number(r.quantity || 0) : ''; };
+          return `
+            ${fld('prodInvFba','FBA on-hand (units)', get('fba'), 'number', 'step="1" min="0"', 'Saving updates Inventory, Economics, and the next generated report instantly.')}
+            ${fld('prodInvAwd','AWD on-hand (units)', get('awd'), 'number', 'step="1" min="0"')}
+            ${fld('prodInvAng','Angora WH (units)', get('angora'), 'number', 'step="1" min="0"')}
+            ${fld('prodInvOth','Other / Reserved (units)', get('other'), 'number', 'step="1" min="0"')}
+          `;
+        })()}
+        <div style="grid-column:1/-1;height:1px;background:var(--border);margin:4px 0"></div>
         <div style="grid-column:1/-1;font-family:\\'DM Mono\\',monospace;font-size:9px;text-transform:uppercase;letter-spacing:2px;color:var(--accent);margin-bottom:-6px">Dimensions & Weight (for auto-FBA)</div>
         ${fld('prodWeight','Weight (oz)', p.weight_oz ?? '', 'number', 'step="0.01" min="0"')}
         ${fld('prodLen','Length (in)', p.length_in ?? '', 'number', 'step="0.01" min="0"')}
@@ -18343,10 +18360,67 @@ async function acctSaveProductEdit(productId) {
   // Update local cache so re-renders show new data
   const p = (_acctCache.products || []).find(x => x.id === productId);
   if (p) Object.assign(p, payload);
+
+  // ── INVENTORY upsert ──────────────────────────────────────────────
+  // The modal now exposes FBA / AWD / Angora WH / Other on-hand counts.
+  // Save them straight into angora_inventory so EVERY tab (Inventory,
+  // Economics, Sales by SKU, Client Report) reflects the new on-hand units
+  // immediately — no need to bounce out to the Inventory tab to "Save Changes".
+  try {
+    const { data: userRes } = await sb.auth.getUser();
+    const userId = userRes && userRes.user ? userRes.user.id : null;
+
+    const invFields = [
+      { id: 'prodInvFba', loc: 'fba' },
+      { id: 'prodInvAwd', loc: 'awd' },
+      { id: 'prodInvAng', loc: 'angora' },
+      { id: 'prodInvOth', loc: 'other' },
+    ];
+
+    const upserts = [];
+    const historyRows = [];
+    for (const f of invFields) {
+      const el = document.getElementById(f.id);
+      if (!el) continue;
+      const raw = el.value;
+      if (raw === '' || raw === null || raw === undefined) continue;        // user left blank — don't touch
+      const qty = Math.max(0, parseInt(raw) || 0);
+      const existing = (_acctCache.inventory || []).find(r => r.product_id === productId && r.location === f.loc);
+      const prevQty = existing ? Number(existing.quantity || 0) : null;
+      if (prevQty === qty) continue;                                         // no change — skip
+      upserts.push({ product_id: productId, location: f.loc, quantity: qty, updated_by: userId, updated_at: new Date().toISOString() });
+      historyRows.push({ product_id: productId, location: f.loc, quantity: qty, source: 'manual_edit_modal', recorded_by: userId });
+    }
+
+    if (upserts.length) {
+      const { error: invErr } = await sb.from('angora_inventory').upsert(upserts, { onConflict: 'product_id,location' });
+      if (invErr) {
+        if (msg) msg.textContent = 'Saved product, but inventory failed: ' + invErr.message;
+      } else {
+        // Append to history (best-effort — non-blocking if the table is missing)
+        try { await sb.from('angora_inventory_history').insert(historyRows); } catch(e){}
+        // Patch local cache so renders see the new values
+        for (const u of upserts) {
+          const idx = (_acctCache.inventory || []).findIndex(r => r.product_id === u.product_id && r.location === u.location);
+          if (idx >= 0) _acctCache.inventory[idx].quantity = u.quantity;
+          else (_acctCache.inventory ||= []).push({ product_id: u.product_id, location: u.location, quantity: u.quantity });
+        }
+        if (msg) msg.textContent = `Saved \u2714 (product + ${upserts.length} inventory location${upserts.length===1?'':'s'})`;
+      }
+    }
+  } catch(e) {
+    console.warn('[Edit Product] inventory upsert failed:', e);
+  }
+
   setTimeout(() => {
     const m = document.getElementById('acctProdModal'); if (m) m.remove();
-    acctRenderInventoryTab();
-    if (typeof acctRenderEconomicsTab === 'function') acctRenderEconomicsTab();
+    if (typeof acctRenderInventoryTab    === 'function') acctRenderInventoryTab();
+    if (typeof acctRenderEconomicsTab    === 'function') acctRenderEconomicsTab();
+    if (typeof acctRenderClientReportTab === 'function' && document.getElementById('acctClientReportRoot')) acctRenderClientReportTab();
+    // If the report preview is open, regenerate it so on-hand-driven sections refresh
+    if (document.getElementById('acctClientReportPreview') && typeof acctClientReportRender === 'function') {
+      try { acctClientReportRender(); } catch(e){}
+    }
   }, 700);
 }
 
@@ -21046,6 +21120,22 @@ const _acctClientRpt = {
   clientSafe: true,
   notes: '',
   html: '',          // cached latest rendered HTML
+  // Executive summary (manual + AI polish)
+  execNotes: '',           // raw bullets typed by the PSM (overrides auto if non-empty)
+  execPolished: '',        // AI-polished HTML, used if present
+  // Section toggles — controls what appears in the rendered report
+  sections: {
+    exec: true,
+    kpi: true,
+    revenue: false,        // off by default per partner feedback (no reliable APIs yet)
+    fees: true,
+    top: true,
+    inventory: true,
+    forecast: true,
+    psm: true,
+  },
+  // Optional manual override for the report signature (otherwise derived from auth email)
+  psmName: '',
 };
 
 function _ymd(d) {
@@ -21076,15 +21166,37 @@ function _fmtPct(v, { signed = false, dp = 1 } = {}) {
 }
 function _cleanName(s) { return String(s||'').trim() || '—'; }
 
-// Current PSM name (from Garden login)
+// Current PSM name (from Garden login).  Manual override > cached email > 'Angora PSM' fallback.
+// We populate window._angoraUserEmail eagerly via _acctRefreshCurrentUserEmail() so this
+// remains synchronous (it's called inside report HTML templating).
 function _acctCurrentPsm() {
   try {
-    const u = window.angoraSupabase?.auth?.user?.() || null;
-    const email = u?.email || window._angoraUserEmail || '';
+    const override = (_acctClientRpt && _acctClientRpt.psmName || '').trim();
+    if (override) return override;
+    const email = (window._angoraUserEmail || '').trim();
     if (!email) return 'Angora PSM';
     const handle = email.split('@')[0].replace(/[._-]/g,' ').replace(/\b\w/g, c => c.toUpperCase());
-    return handle;
+    return handle.trim() || 'Angora PSM';
   } catch(e) { return 'Angora PSM'; }
+}
+
+// Cache the authenticated user's email on `window._angoraUserEmail` so synchronous
+// templating (the report HTML) can read it without an await round-trip. Called once
+// from acctRenderClientReportTab() and refreshed by the global auth-changed listener.
+async function _acctRefreshCurrentUserEmail() {
+  try {
+    const sb = window.angoraSupabase;
+    if (!sb) return;
+    if (typeof sb.auth.getUser === 'function') {
+      const { data } = await sb.auth.getUser();
+      const email = data?.user?.email;
+      if (email) window._angoraUserEmail = email;
+    } else if (typeof sb.auth.getSession === 'function') {
+      const { data } = await sb.auth.getSession();
+      const email = data?.session?.user?.email;
+      if (email) window._angoraUserEmail = email;
+    }
+  } catch(e) { /* non-fatal */ }
 }
 
 function acctRenderClientReportTab() {
@@ -21094,9 +21206,25 @@ function acctRenderClientReportTab() {
   if (!_acctClientRpt.weekStart) _acctClientRpt.weekStart = _ymd(_mondayOf(new Date()));
   if (!_acctClientRpt.month)     _acctClientRpt.month     = new Date().toISOString().slice(0,7);
 
+  // Cache the auth user's email for personalised PSM signature
+  if (typeof _acctRefreshCurrentUserEmail === 'function') _acctRefreshCurrentUserEmail();
+
   // Load saved PSM notes (per account+period) from localStorage
   const notesKey = `angoraClientRptNotes::${_acctCache.accountId||_acctActiveBrand}::${_acctClientRpt.mode}::${_acctClientRpt.mode==='weekly'?_acctClientRpt.weekStart:_acctClientRpt.month}`;
   try { _acctClientRpt.notes = localStorage.getItem(notesKey) || _acctClientRpt.notes || ''; } catch(e){}
+
+  // Load saved exec-summary notes / polished output / section toggles / PSM override
+  const execNotesKey  = `angoraClientRptExecNotes::${_acctCache.accountId||_acctActiveBrand}::${_acctClientRpt.mode}::${_acctClientRpt.mode==='weekly'?_acctClientRpt.weekStart:_acctClientRpt.month}`;
+  const execPolishKey = `angoraClientRptExecPolished::${_acctCache.accountId||_acctActiveBrand}::${_acctClientRpt.mode}::${_acctClientRpt.mode==='weekly'?_acctClientRpt.weekStart:_acctClientRpt.month}`;
+  const sectionsKey   = `angoraClientRptSections::${_acctCache.accountId||_acctActiveBrand}`;
+  const psmKey        = `angoraClientRptPsmName::${_acctCache.accountId||_acctActiveBrand}`;
+  try { _acctClientRpt.execNotes    = localStorage.getItem(execNotesKey)  || _acctClientRpt.execNotes    || ''; } catch(e){}
+  try { _acctClientRpt.execPolished = localStorage.getItem(execPolishKey) || _acctClientRpt.execPolished || ''; } catch(e){}
+  try {
+    const saved = JSON.parse(localStorage.getItem(sectionsKey) || 'null');
+    if (saved && typeof saved === 'object') _acctClientRpt.sections = Object.assign({}, _acctClientRpt.sections, saved);
+  } catch(e){}
+  try { _acctClientRpt.psmName = localStorage.getItem(psmKey) || _acctClientRpt.psmName || ''; } catch(e){}
 
   const modeBtn = (m, label) => `
     <button onclick="acctClientReportSetMode('${m}')"
@@ -21152,8 +21280,71 @@ function acctRenderClientReportTab() {
         </button>
       </div>
 
+      <!-- ── SECTION TOGGLES ─────────────────────────────────────────── -->
       <div style="margin-top:22px;padding-top:22px;border-top:1px solid var(--border)">
-        <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">PSM Commentary</div>
+        <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Sections to include</div>
+        <div style="display:flex;gap:10px 22px;flex-wrap:wrap">
+          ${[
+            ['exec','Executive Summary'],
+            ['kpi','Headline Metrics'],
+            ['revenue','Revenue Trajectory'],
+            ['fees','Where The Money Went'],
+            ['top','Top Performers'],
+            ['inventory','Inventory Watch'],
+            ['forecast','Looking Ahead'],
+            ['psm','PSM Commentary'],
+          ].map(([k,label]) => `
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" ${_acctClientRpt.sections[k]?'checked':''} onchange="acctClientReportToggleSection('${k}',this.checked)" style="accent-color:#a78bfa">
+              <span style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--text)">${label}</span>
+            </label>`).join('')}
+        </div>
+      </div>
+
+      <!-- ── EXECUTIVE SUMMARY (manual + AI polish) ─────────────────── -->
+      <div style="margin-top:22px;padding-top:22px;border-top:1px solid var(--border)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+          <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)">Executive Summary (manual)</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button id="acctExecPolishBtn" onclick="acctPolishExecSummary()"
+              style="padding:7px 14px;background:linear-gradient(135deg,#6b8fff,#a78bfa);border:none;border-radius:8px;color:#fff;
+                     font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+              <svg width="11" height="11" viewBox="0 0 13 13" fill="none"><path d="M6.5 1L7.8 4.7H11.7L8.5 7L9.8 10.7L6.5 8.4L3.2 10.7L4.5 7L1.3 4.7H5.2L6.5 1Z" fill="currentColor"/></svg>
+              Polish with AI
+            </button>
+            ${(_acctClientRpt.execPolished||'').trim() ? `
+              <button onclick="acctClearExecPolished()" title="Discard the polished version and use the manual notes (or auto summary) instead"
+                style="padding:7px 12px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;cursor:pointer">Reset</button>
+            ` : ''}
+          </div>
+        </div>
+        <textarea id="acctClientRptExecNotes" placeholder="Type bullet points or rough notes. Hit Polish with AI to turn them into a clean executive summary. Leave blank to use the auto-generated summary."
+          oninput="_acctClientRpt.execNotes=this.value;try{localStorage.setItem('${execNotesKey.replace(/'/g,"\\'")}',this.value)}catch(e){}"
+          style="width:100%;min-height:84px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;
+                 padding:12px 14px;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;line-height:1.55;resize:vertical"
+        >${(_acctClientRpt.execNotes||'').replace(/</g,'&lt;')}</textarea>
+        ${(_acctClientRpt.execPolished||'').trim() ? `
+          <div style="margin-top:10px;padding:12px 14px;background:linear-gradient(135deg,rgba(107,143,255,0.08),rgba(167,139,250,0.08));border:1px solid rgba(167,139,250,0.35);border-radius:10px">
+            <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#a78bfa;margin-bottom:6px">Polished output (used in report)</div>
+            <div id="acctExecPolishedPreview" contenteditable="true" spellcheck="false"
+              oninput="_acctClientRpt.execPolished=this.innerHTML;try{localStorage.setItem('${execPolishKey.replace(/'/g,"\\'")}',this.innerHTML)}catch(e){}"
+              style="font-family:'Inter',sans-serif;font-size:13px;line-height:1.6;color:var(--text);outline:none">${_acctClientRpt.execPolished}</div>
+          </div>
+        ` : ''}
+      </div>
+
+      <!-- ── PSM COMMENTARY ─────────────────────────────────────────── -->
+      <div style="margin-top:22px;padding-top:22px;border-top:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px">
+          <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)">PSM Commentary</div>
+          <div style="flex:1"></div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted)">Signed as</span>
+            <input id="acctClientRptPsmName" value="${(_acctClientRpt.psmName || _acctCurrentPsm() || '').replace(/"/g,'&quot;')}" placeholder="${_acctCurrentPsm()}"
+              oninput="_acctClientRpt.psmName=this.value;try{localStorage.setItem('${psmKey.replace(/'/g,"\\'")}',this.value)}catch(e){}"
+              style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px;min-width:160px">
+          </div>
+        </div>
         <textarea id="acctClientRptNotes" placeholder="Optional commentary — wins, issues, action items. Shown in the report as PSM notes."
           oninput="_acctClientRpt.notes=this.value;try{localStorage.setItem('${notesKey.replace(/'/g,"\\'")}',this.value)}catch(e){}"
           style="width:100%;min-height:92px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;
@@ -21181,6 +21372,112 @@ function acctClientReportShift(delta) {
     _acctClientRpt.month = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;
   }
   acctRenderClientReportTab();
+}
+
+// Toggle a single section on/off and persist to localStorage so the choice
+// sticks across navigations.  Triggered from the Generate-Report panel.
+function acctClientReportToggleSection(key, on) {
+  if (!_acctClientRpt.sections) _acctClientRpt.sections = {};
+  _acctClientRpt.sections[key] = !!on;
+  try {
+    const sectionsKey = `angoraClientRptSections::${_acctCache.accountId||_acctActiveBrand}`;
+    localStorage.setItem(sectionsKey, JSON.stringify(_acctClientRpt.sections));
+  } catch(e){}
+}
+
+// Discard the AI-polished executive summary and revert to manual notes / auto.
+function acctClearExecPolished() {
+  _acctClientRpt.execPolished = '';
+  try {
+    const k = `angoraClientRptExecPolished::${_acctCache.accountId||_acctActiveBrand}::${_acctClientRpt.mode}::${_acctClientRpt.mode==='weekly'?_acctClientRpt.weekStart:_acctClientRpt.month}`;
+    localStorage.removeItem(k);
+  } catch(e){}
+  acctRenderClientReportTab();
+}
+
+// Polish the manual exec-summary notes via Anthropic (same key/model as the
+// Weekly Report's polishWeeklyNotes).  Result is stored in _acctClientRpt.execPolished
+// and surfaced as the "01 Executive summary" body in the rendered report.
+async function acctPolishExecSummary() {
+  const ta = document.getElementById('acctClientRptExecNotes');
+  const notes = (ta?.value || _acctClientRpt.execNotes || '').trim();
+  if (!notes) {
+    alert('Type a few bullet points first, then hit Polish with AI.');
+    return;
+  }
+  const btn = document.getElementById('acctExecPolishBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="8 8" opacity="0.7"><animateTransform attributeName="transform" type="rotate" from="0 6.5 6.5" to="360 6.5 6.5" dur="1s" repeatCount="indefinite"/></circle></svg> Polishing…';
+  }
+
+  // Pull the current period's metrics for context — same data the auto-summary uses.
+  let context = '';
+  try {
+    const data = acctClientReportGatherData();
+    const periodWord = data.mode === 'weekly' ? 'this week' : 'this month';
+    const lines = [
+      `Brand: ${data.brand}`,
+      `Period: ${data.labelLong}`,
+      `Revenue ${periodWord}: ${_fmtMoney(data.revenue,{dash:false})}${isFinite(data.dRevPct)&&data.prevRev>0?` (${_fmtPct(data.dRevPct,{signed:true})} vs prior period)`:''}`,
+      `Units sold: ${_fmtInt(data.units)}, AOV ${_fmtMoney(data.aov,{dash:false})}`,
+      data.adSpend > 0 ? `Ad spend: ${_fmtMoney(data.adSpend,{dash:false})} (TACoS ${data.tacos.toFixed(1)}%)` : '',
+      `Net ${data.clientSafe?'profit (gross of Angora fee)':'profit'}: ${_fmtMoney(data.netProfit,{dash:false})} (${data.netMargin.toFixed(1)}% margin)`,
+      data.invAlerts.length ? `${data.invAlerts.length} SKU${data.invAlerts.length===1?'':'s'} flagged for restock` : '',
+    ].filter(Boolean);
+    context = '\n\nAccount context:\n' + lines.join('\n');
+  } catch(e) { /* non-fatal */ }
+
+  const prompt = `You are an Amazon FBA Partner Success Manager writing the Executive Summary section of a polished weekly/monthly performance report for a brand partner.
+
+${context}
+
+Raw notes from the PSM:
+"${notes}"
+
+Rewrite as 3–5 short, confident sentences that read like a one-paragraph executive summary at the top of a quarterly investor letter. Lead with the most important takeaway. Keep numbers exact when the PSM cites them. No bullet points, no headers, no preamble — just the polished paragraphs. Use **bold** sparingly for the single most important metric or finding.`;
+
+  try {
+    const apiKey = (window._angoraApiKey || (typeof ANGORA_ANTHROPIC_API_KEY !== 'undefined' ? ANGORA_ANTHROPIC_API_KEY : '') || '').trim();
+    if (!apiKey) throw new Error('Anthropic API key is not configured.');
+    window._angoraApiKey = apiKey;
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 700,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    if (resp.status === 401) throw new Error('Invalid Anthropic API key.');
+    const data = await resp.json();
+    const text = (data.content?.map(b => b.text || '').join('') || '').trim();
+    if (!text) throw new Error('No response received from the model.');
+    // Format **bold** as <strong>; preserve paragraph breaks
+    const html = text
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .split(/\n{2,}/).map(p => `<p style="margin:0 0 10px">${p.replace(/\n/g,'<br>')}</p>`).join('');
+    _acctClientRpt.execPolished = html;
+    try {
+      const k = `angoraClientRptExecPolished::${_acctCache.accountId||_acctActiveBrand}::${_acctClientRpt.mode}::${_acctClientRpt.mode==='weekly'?_acctClientRpt.weekStart:_acctClientRpt.month}`;
+      localStorage.setItem(k, html);
+    } catch(e){}
+    acctRenderClientReportTab();
+  } catch(err) {
+    alert('Could not polish: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 13 13" fill="none"><path d="M6.5 1L7.8 4.7H11.7L8.5 7L9.8 10.7L6.5 8.4L3.2 10.7L4.5 7L1.3 4.7H5.2L6.5 1Z" fill="currentColor"/></svg> Polish with AI';
+    }
+  }
 }
 
 // ── Data gathering for the report ─────────────────────────────────────────
@@ -21352,6 +21649,13 @@ function acctClientReportGatherData() {
     days, topSkus, invAlerts, forecastRev, forecastUnits,
     clientSafe,
     notes: _acctClientRpt.notes || '',
+    // Executive summary inputs (manual notes + polished output) — render() decides which to show
+    execNotes:    _acctClientRpt.execNotes    || '',
+    execPolished: _acctClientRpt.execPolished || '',
+    // Section toggles — render() omits any section whose flag is false
+    sections: Object.assign({
+      exec:true, kpi:true, revenue:false, fees:true, top:true, inventory:true, forecast:true, psm:true,
+    }, _acctClientRpt.sections || {}),
   };
 }
 
@@ -21425,19 +21729,32 @@ function acctBuildClientReportHtml(d) {
     </span>`;
   };
 
-  // Executive summary — auto
+  // Executive summary — uses (1) AI-polished HTML if present, else (2) manual notes converted
+  // to <p> blocks, else (3) auto-generated bullets from the metrics.
   const periodWord = d.mode === 'weekly' ? 'this week' : 'this month';
   const prevWord   = d.mode === 'weekly' ? 'last week' : 'the prior month';
   const direction  = d.dRevPct > 2 ? 'climbed' : d.dRevPct < -2 ? 'softened' : 'held steady';
-  const summaryLines = [];
+  const autoSummaryLines = [];
   if (d.revenue > 0) {
-    summaryLines.push(`Revenue ${direction} to ${_fmtMoney(d.revenue,{dash:false})} ${periodWord}${isFinite(d.dRevPct) && d.prevRev > 0 ? `, a ${_fmtPct(d.dRevPct,{signed:true})} move versus ${prevWord}` : ''}.`);
+    autoSummaryLines.push(`Revenue ${direction} to ${_fmtMoney(d.revenue,{dash:false})} ${periodWord}${isFinite(d.dRevPct) && d.prevRev > 0 ? `, a ${_fmtPct(d.dRevPct,{signed:true})} move versus ${prevWord}` : ''}.`);
   } else {
-    summaryLines.push(`No recorded sales data for ${periodWord}. Once the ${d.mode === 'weekly' ? 'weekly' : 'monthly'} transaction report uploads, this section will populate with a full performance narrative.`);
+    autoSummaryLines.push(`No recorded sales data for ${periodWord}. Once the ${d.mode === 'weekly' ? 'weekly' : 'monthly'} transaction report uploads, this section will populate with a full performance narrative.`);
   }
-  if (d.units > 0)    summaryLines.push(`${_fmtInt(d.units)} units were fulfilled at an average order value of ${_fmtMoney(d.aov,{dash:false})}.`);
-  if (d.adSpend > 0)  summaryLines.push(`Advertising investment totaled ${_fmtMoney(d.adSpend,{dash:false})} (TACoS ${d.tacos.toFixed(1)}%).`);
-  if (d.invAlerts.length) summaryLines.push(`${d.invAlerts.length} SKU${d.invAlerts.length===1?'':'s'} need restock attention this cycle.`);
+  if (d.units > 0)    autoSummaryLines.push(`${_fmtInt(d.units)} units were fulfilled at an average order value of ${_fmtMoney(d.aov,{dash:false})}.`);
+  if (d.adSpend > 0)  autoSummaryLines.push(`Advertising investment totaled ${_fmtMoney(d.adSpend,{dash:false})} (TACoS ${d.tacos.toFixed(1)}%).`);
+  if (d.invAlerts.length) autoSummaryLines.push(`${d.invAlerts.length} SKU${d.invAlerts.length===1?'':'s'} need restock attention this cycle.`);
+
+  let execBodyHtml;
+  if ((d.execPolished || '').trim()) {
+    execBodyHtml = d.execPolished;                // already wrapped in <p>…</p>
+  } else if ((d.execNotes || '').trim()) {
+    execBodyHtml = d.execNotes
+      .split(/\n{2,}/)
+      .map(p => `<p style="margin:0 0 10px">${p.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>')}</p>`)
+      .join('');
+  } else {
+    execBodyHtml = autoSummaryLines.map(s => `<p style="margin:0 0 10px">${s}</p>`).join('');
+  }
 
   const topSkuRows = d.topSkus.length
     ? d.topSkus.map(s => `
@@ -21494,39 +21811,30 @@ function acctBuildClientReportHtml(d) {
 </style></head><body>
 <div class="page">
 
-  <!-- HEADER BAND -->
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid ${ink};padding-bottom:28px">
-    <div style="display:flex;align-items:center;gap:16px">
-      <div style="width:44px;height:44px;border-radius:50%;background:${accent};display:flex;align-items:center;justify-content:center;color:#fff;font:700 20px/1 'Instrument Serif';letter-spacing:0.5px">A</div>
-      <div>
-        <div class="label-accent" style="margin-bottom:6px">Angora · Amazon Brand Management</div>
-        <div style="font:600 13px/1.3 Inter;color:${ink};letter-spacing:0.2px">${d.brand}</div>
-      </div>
-    </div>
-    <div style="text-align:right">
-      <div class="label" style="margin-bottom:6px">${d.mode === 'weekly' ? 'Weekly Report' : 'Monthly Report'}</div>
-      <div style="font:500 11.5px 'JetBrains Mono';color:${soft};letter-spacing:0.04em">Prepared ${today}</div>
-    </div>
+  <!-- HEADER BAND — brand name only, per partner direction -->
+  <div style="border-bottom:1px solid ${ink};padding-bottom:28px">
+    <div style="font:600 16px/1.3 Inter;color:${ink};letter-spacing:0.2px">${d.brand}</div>
   </div>
 
-  <!-- HERO -->
+  <!-- HERO — title only, no italic byline -->
   <div style="margin-top:54px;margin-bottom:40px">
     <div class="label" style="margin-bottom:18px">Performance Report · ${d.labelShort}</div>
-    <div class="h-display">${d.mode === 'weekly' ? 'Week in review.' : 'Month in review.'}</div>
-    <div style="margin-top:18px;font:400 16px/1.55 'Instrument Serif',Georgia,serif;color:${soft};font-style:italic;max-width:620px">${d.labelLong}${d.clientSafe ? ' · prepared for the brand partner.' : ' · internal Angora view.'}</div>
+    <div class="h-display">${d.mode === 'weekly' ? 'Week In Review' : 'Month In Review'}</div>
   </div>
 
-  <!-- EXECUTIVE SUMMARY -->
+  <!-- 01 EXECUTIVE SUMMARY -->
+  ${d.sections.exec ? `
   <div class="section" style="margin-top:0">
     <div class="section-head"><div><div class="label">01</div><div class="h2">Executive summary</div></div></div>
     <div style="font:400 14.5px/1.75 Inter;color:${ink};max-width:720px">
-      ${summaryLines.map(s => `<p style="margin:0 0 10px">${s}</p>`).join('')}
+      ${execBodyHtml}
     </div>
   </div>
 
-  <div class="rule"></div>
+  <div class="rule"></div>` : ''}
 
-  <!-- KPI SCORECARD -->
+  <!-- 02 KPI SCORECARD -->
+  ${d.sections.kpi ? `
   <div class="section" style="margin-top:0">
     <div class="section-head"><div><div class="label">02</div><div class="h2">Headline metrics</div></div>
       <div class="label" style="color:${soft}">vs ${d.mode === 'weekly' ? 'last week' : 'prior month'}</div>
@@ -21553,9 +21861,10 @@ function acctBuildClientReportHtml(d) {
         <div class="kd"><span style="font:500 10.5px 'JetBrains Mono';color:${soft}">TACoS ${d.tacos.toFixed(1)}%</span></div>
       </div>
     </div>
-  </div>
+  </div>` : ''}
 
-  <!-- REVENUE TREND -->
+  <!-- 03 REVENUE TREND (off by default — needs API integrations) -->
+  ${d.sections.revenue ? `
   <div class="section">
     <div class="section-head"><div><div class="label">03</div><div class="h2">Revenue trajectory</div></div>
       <div class="label" style="color:${soft}">Daily · ${d.days.length} days</div>
@@ -21573,9 +21882,10 @@ function acctBuildClientReportHtml(d) {
         ${xLabels}
       </svg>
     </div>
-  </div>
+  </div>` : ''}
 
-  <!-- FEE STACK -->
+  <!-- 04 FEE STACK -->
+  ${d.sections.fees ? `
   <div class="section">
     <div class="section-head"><div><div class="label">04</div><div class="h2">Where the money went</div></div>
       <div class="label" style="color:${soft}">Revenue allocation</div>
@@ -21588,11 +21898,13 @@ function acctBuildClientReportHtml(d) {
       <div style="display:flex;height:28px;border-radius:6px;overflow:hidden;border:1px solid ${rule}">${stackHtml}</div>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px 28px;margin-top:18px">${legendHtml}</div>
     </div>
-  </div>
+  </div>` : ''}
 
-  <!-- TOP SKUs + INVENTORY (two-col) -->
+  <!-- 05 / 06 TOP SKUs + INVENTORY (independently toggleable, side-by-side when both on) -->
+  ${(d.sections.top || d.sections.inventory) ? `
   <div class="section">
-    <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:24px;align-items:flex-start">
+    <div style="display:grid;grid-template-columns:${d.sections.top && d.sections.inventory ? '1.1fr 1fr' : '1fr'};gap:24px;align-items:flex-start">
+      ${d.sections.top ? `
       <div>
         <div class="section-head"><div><div class="label">05</div><div class="h2">Top performers</div></div></div>
         <div style="background:${paper2};border:1px solid ${rule};border-radius:10px;overflow:hidden">
@@ -21606,9 +21918,10 @@ function acctBuildClientReportHtml(d) {
             <tbody>${topSkuRows}</tbody>
           </table>
         </div>
-      </div>
+      </div>` : ''}
+      ${d.sections.inventory ? `
       <div>
-        <div class="section-head"><div><div class="label">06</div><div class="h2">Inventory watch</div></div></div>
+        <div class="section-head"><div><div class="label">${d.sections.top ? '06' : '05'}</div><div class="h2">Inventory watch</div></div></div>
         <div style="background:${paper2};border:1px solid ${rule};border-radius:10px;overflow:hidden">
           ${d.invAlerts.length ? `<table style="width:100%;border-collapse:collapse">
             <thead><tr style="background:${paper}">
@@ -21620,11 +21933,12 @@ function acctBuildClientReportHtml(d) {
             <tbody>${invRows}</tbody>
           </table>` : `<div style="padding:28px 18px;text-align:center;color:${soft};font:400 13px/1.55 Inter;font-style:italic">All SKUs are comfortably stocked. No alerts this ${d.mode === 'weekly' ? 'week' : 'month'}.</div>`}
         </div>
-      </div>
+      </div>` : ''}
     </div>
-  </div>
+  </div>` : ''}
 
-  <!-- FORECAST -->
+  <!-- 07 FORECAST — useful for 2.0 accounts; toggle off for 1.0 -->
+  ${d.sections.forecast ? `
   <div class="section">
     <div class="section-head"><div><div class="label">07</div><div class="h2">Looking ahead</div></div>
       <div class="label" style="color:${soft}">Next ${d.mode === 'weekly' ? 'week' : 'month'} projection</div>
@@ -21641,22 +21955,22 @@ function acctBuildClientReportHtml(d) {
         <div style="font:500 10.5px 'JetBrains Mono';color:${soft};margin-top:8px;letter-spacing:0.04em">BASED ON ${d.daysInPeriod}-DAY PACE</div>
       </div>
     </div>
-  </div>
+  </div>` : ''}
 
-  <!-- PSM COMMENTARY -->
+  <!-- 08 PSM COMMENTARY -->
+  ${d.sections.psm ? `
   <div class="section">
     <div class="section-head"><div><div class="label">08</div><div class="h2">Notes from your Partner Success Manager</div></div></div>
     <div style="background:${paper2};border-left:3px solid ${accent};border-radius:0 10px 10px 0;padding:22px 26px">
       ${noteParas}
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid ${rule};font:500 10px 'JetBrains Mono';letter-spacing:0.14em;text-transform:uppercase;color:${soft}">— ${d.psm}</div>
     </div>
-  </div>
+  </div>` : ''}
 
-  <!-- FOOTER -->
+  <!-- FOOTER — Angora logo + period only -->
   <div style="margin-top:60px;padding-top:24px;border-top:1px solid ${ink};display:flex;justify-content:space-between;align-items:center">
     <div style="display:flex;align-items:center;gap:12px">
-      <div style="width:24px;height:24px;border-radius:50%;background:${ink};color:${paper};display:flex;align-items:center;justify-content:center;font:700 11px 'Instrument Serif'">A</div>
-      <div class="label" style="color:${soft}">Angora · ${d.clientSafe ? 'Prepared for partner review' : 'Internal Angora copy'}</div>
+      <img src="https://qzfsbqxldyvwxtotppku.supabase.co/storage/v1/object/public/pic/angora_black_logo.png" alt="Angora" style="height:22px;width:auto;object-fit:contain;display:block">
     </div>
     <div class="label" style="color:${soft}">Confidential · ${d.labelShort}</div>
   </div>
