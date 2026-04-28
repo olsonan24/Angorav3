@@ -8858,14 +8858,14 @@ function switchTool(tool) {
   currentTool = tool;
   if (tool === 'home') { setTimeout(initDashboard, 50); setTimeout(renderHomeAuditPreview, 80); }
   if (tool === 'inbox') { setTimeout(initInbox, 50); }
-  ['home','ppc','pnl','funnel','sku','skulib','inv','salessku','calc','weekly','settings','adminqueue','audit','ops','auditsched','inbox'].forEach(t => {
+  ['home','ppc','pnl','funnel','sku','skulib','inv','salessku','calc','weekly','settings','adminqueue','audit','ops','auditsched','inbox','compliance'].forEach(t => {
     const cap  = t.charAt(0).toUpperCase() + t.slice(1);
     const page = document.getElementById('page' + cap);
     const nav  = document.getElementById('nav'  + cap);
     if (page) page.classList.toggle('active', t === tool);
     if (nav)  nav.classList.toggle('active',  t === tool);
   });
-  const names = { home: 'The Garden', ppc: 'Search Term Audit', pnl: 'P&L Analysis', funnel: 'Funnel Audit', sku: 'SKU Economics', inv: 'Inventory Health', salessku: 'Sales by SKU', calc: 'FBA Calculator', weekly: 'Weekly Report', settings: 'Settings', adminqueue: 'Admin Approvals', audit: 'Monthly Brand Audit', ops: 'Account OPS', inbox: 'Messages Inbox' };
+  const names = { home: 'The Garden', ppc: 'Search Term Audit', pnl: 'P&L Analysis', funnel: 'Funnel Audit', sku: 'SKU Economics', inv: 'Inventory Health', salessku: 'Sales by SKU', calc: 'FBA Calculator', weekly: 'Weekly Report', settings: 'Settings', adminqueue: 'Admin Approvals', audit: 'Monthly Brand Audit', ops: 'Account OPS', inbox: 'Messages Inbox', compliance: 'Compliance' };
   const badges = { ppc: 'Sponsored Products', pnl: 'Transaction View', funnel: 'Brand Analytics', sku: 'Business Report', inv: 'FBA Inventory', calc: 'FBA Fees 2025', weekly: 'Performance Dashboard', adminqueue: 'Super Admin Queue', audit: 'Deep Dive Analysis' };
   const nameEl  = document.getElementById('headerToolName');
   const badgeEl = document.getElementById('headerBadge');
@@ -8888,6 +8888,7 @@ function switchTool(tool) {
   if (tool === 'adminqueue') initSettingsAdminApprovals();
   if (tool === 'ops')    opsInit();
   if (tool === 'auditsched') initAuditsched();
+  if (tool === 'compliance') initCompliance();
 }
 
 function toggleNavMenu() {
@@ -15934,6 +15935,17 @@ window.calDeleteAudit = async function() {
     <div style="font-family:'DM Mono',monospace;font-size:10px;padding:4px 10px;border-radius:6px;background:rgba(77,255,180,0.1);color:#4dffb4;border:1px solid rgba(77,255,180,0.2)">Current</div>
   </div>
 
+
+<!-- BEGIN: AMAZON_COMPLIANCE_SETTINGS_LINK -->
+  <div class="settings-row" onclick="switchTool('compliance')" style="cursor:pointer">
+    <div class="settings-row-left">
+      <div class="settings-row-label">Amazon Compliance</div>
+      <div class="settings-row-sub">Deactivated clients · §1.7 deletion countdown · audit log</div>
+    </div>
+    <div style="font-family:'DM Mono',monospace;font-size:10px;padding:4px 10px;border-radius:6px;background:rgba(233,79,79,0.1);color:#ff8888;border:1px solid rgba(233,79,79,0.3)">Open</div>
+  </div>
+<!-- END: AMAZON_COMPLIANCE_SETTINGS_LINK -->
+
   <div class="settings-row" onclick="gardenSyncPartnerLibrary()" style="cursor:pointer">
     <div class="settings-row-left">
       <div class="settings-row-label">Sync Partners from Monday</div>
@@ -15944,6 +15956,58 @@ window.calDeleteAudit = async function() {
 
 </div>
 </div>
+
+
+<!-- BEGIN: AMAZON_COMPLIANCE_PAGE -->
+<div id="pageCompliance" class="page" style="display:none">
+  <div style="max-width:1100px;margin:0 auto;padding:32px 24px 80px">
+    <div style="margin-bottom:4px;font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:2.5px;color:#f5a623">Amazon SP-API · §1.7</div>
+    <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--text);line-height:1.15;margin-bottom:6px">Compliance</div>
+    <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);margin-bottom:28px;line-height:1.55">
+      Track every client whose Amazon access has been deactivated, and Amazon's 30-day countdown to permanent data deletion.
+      Once the deadline passes, hit <strong style="color:var(--text)">Delete</strong> to wipe their data and generate a Certificate of Destruction.
+    </div>
+
+    <!-- Top stats row -->
+    <div id="complianceStats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:28px">
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="font-family:'DM Mono',monospace;font-size:8px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:6px">Active Clients</div>
+        <div id="complianceStatActive" style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--text)">—</div>
+      </div>
+      <div style="background:rgba(245,166,35,0.05);border:1px solid rgba(245,166,35,0.3);border-radius:12px;padding:16px 18px">
+        <div style="font-family:'DM Mono',monospace;font-size:8px;text-transform:uppercase;letter-spacing:1.5px;color:#f5a623;margin-bottom:6px">Deactivated</div>
+        <div id="complianceStatDeactivated" style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--text)">—</div>
+      </div>
+      <div style="background:rgba(233,79,79,0.05);border:1px solid rgba(233,79,79,0.3);border-radius:12px;padding:16px 18px">
+        <div style="font-family:'DM Mono',monospace;font-size:8px;text-transform:uppercase;letter-spacing:1.5px;color:#ff8888;margin-bottom:6px">Past Due</div>
+        <div id="complianceStatOverdue" style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--text)">—</div>
+      </div>
+      <div style="background:rgba(80,200,120,0.04);border:1px solid rgba(80,200,120,0.3);border-radius:12px;padding:16px 18px">
+        <div style="font-family:'DM Mono',monospace;font-size:8px;text-transform:uppercase;letter-spacing:1.5px;color:#9be8b8;margin-bottom:6px">Deletions Logged</div>
+        <div id="complianceStatDeletions" style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--text)">—</div>
+      </div>
+    </div>
+
+    <!-- Deactivated clients list -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div style="font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:2px;color:var(--muted)">Deactivated clients · countdown to deletion</div>
+      <button onclick="initCompliance()" style="background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;padding:6px 12px;cursor:pointer;letter-spacing:1px;text-transform:uppercase">Refresh</button>
+    </div>
+    <div id="complianceDeactivatedList" style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;overflow:hidden">
+      <div style="padding:28px;text-align:center;color:var(--muted);font-family:'DM Mono',monospace;font-size:11px">Loading…</div>
+    </div>
+
+    <!-- Deletion audit log -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:32px 0 14px">
+      <div style="font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:2px;color:var(--muted)">Deletion audit log</div>
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);opacity:0.8">angora_data_deletions</div>
+    </div>
+    <div id="complianceAuditList" style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;overflow:hidden">
+      <div style="padding:28px;text-align:center;color:var(--muted);font-family:'DM Mono',monospace;font-size:11px">Loading…</div>
+    </div>
+  </div>
+</div>
+<!-- END: AMAZON_COMPLIANCE_PAGE -->
 
 <div id="pageAdminqueue" class="page" style="display:none">
 <div class="admin-queue-page">
@@ -17739,6 +17803,19 @@ window.calDeleteAudit = async function() {
         <div id="acctAuditHistory" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
 
+
+
+<!-- BEGIN: AMAZON_COMPLIANCE_DEACTIVATE_BTN -->
+      <!-- Amazon-access status row — tracks SP-API §1.7 deletion deadline -->
+      <div id="acctAmazonStatusRow" style="background:rgba(245,166,35,0.05);border:1px solid rgba(245,166,35,0.3);border-radius:14px;padding:16px 20px;margin-top:8px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+        <div style="flex:1;min-width:240px">
+          <div style="font-family:'DM Mono',monospace;font-size:8px;text-transform:uppercase;letter-spacing:2.5px;color:#f5a623;margin-bottom:8px;opacity:0.95">Amazon Access</div>
+          <div id="acctAmazonStatusLine" style="color:var(--text);font-weight:600;font-size:13px;margin-bottom:4px">Active</div>
+          <div id="acctAmazonStatusSub" style="color:var(--muted);font-size:10.5px;line-height:1.55;font-family:'DM Mono',monospace">Client is still authorized. Mark as deactivated when the client churns or revokes Amazon access — this starts Amazon's 30-day deletion countdown.</div>
+        </div>
+        <button id="acctAmazonStatusBtn" onclick="acctMarkAmazonDeactivated()" style="background:rgba(245,166,35,0.12);border:1px solid rgba(245,166,35,0.5);border-radius:9px;color:#f5a623;font-family:'DM Mono',monospace;font-size:9px;padding:9px 16px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;font-weight:700;white-space:nowrap;transition:all 0.15s" onmouseover="this.style.background='rgba(245,166,35,0.22)'" onmouseout="this.style.background='rgba(245,166,35,0.12)'">Mark deactivated</button>
+      </div>
+<!-- END: AMAZON_COMPLIANCE_DEACTIVATE_BTN -->
 
 <!-- BEGIN: AMAZON_COMPLIANCE_DANGER_ZONE -->
       <!-- Danger Zone — Amazon SP-API §1.7 client-data deletion -->
@@ -19649,7 +19726,7 @@ async function acctParseAmazonSheet(file) {
     }
   } catch(e) { console.warn('storage upload err', e); }
   try {
-    const { data: _upRow } = await sb.from('angora_pdf_uploads').insert({ account_id: _acctCache.accountId, uploaded_by: userId, file_name: file.name, file_path: uploadUrl || path, report_type: 'business_report_csv', status: 'processing' }).select('id').single();
+    const { data: _upRow } = await sb.from('angora_pdf_uploads').insert({ account_id: _acctCache.accountId, uploaded_by: userId, file_name: file.name, file_path: uploadUrl || path, report_type: 'business_report_csv', status: 'processing', data_source: 'amazon_business_report', data_source_imported_at: new Date().toISOString() }).select('id').single();
     window._acctPdfUploadId = _upRow ? _upRow.id : null;
   } catch(e) { window._acctPdfUploadId = null; }
 
@@ -19762,7 +19839,7 @@ async function acctParseAmazonPdf(file) {
     }
   } catch(e) { console.warn('storage upload err', e); }
   try {
-    const { data: _upRow } = await sb.from('angora_pdf_uploads').insert({ account_id: _acctCache.accountId, uploaded_by: userId, file_name: file.name, file_path: uploadUrl || path, report_type: 'business_report', status: 'processing' }).select('id').single();
+    const { data: _upRow } = await sb.from('angora_pdf_uploads').insert({ account_id: _acctCache.accountId, uploaded_by: userId, file_name: file.name, file_path: uploadUrl || path, report_type: 'business_report', status: 'processing', data_source: 'amazon_business_report', data_source_imported_at: new Date().toISOString() }).select('id').single();
     window._acctPdfUploadId = _upRow ? _upRow.id : null;
   } catch(e) { window._acctPdfUploadId = null; }
 
@@ -20924,6 +21001,8 @@ async function acctReportsHandleFile(type, file) {
       rows: normalized,
       uploaded_by: user?.user?.id || null,
       uploaded_at: new Date().toISOString(),
+      data_source: 'amazon_business_report',
+      data_source_imported_at: new Date().toISOString(),
     };
     const { error } = await sb.from('angora_report_uploads').upsert(payload, { onConflict: 'account_id,report_type,month' });
     if (error) throw new Error(error.message || JSON.stringify(error));
@@ -22680,6 +22759,272 @@ async function gardenSyncPartnerLibrary() {
 })();
 </script>
 <!-- END: AMAZON_COMPLIANCE_SCRIPT -->
+<!-- BEGIN: AMAZON_COMPLIANCE_PAGE_SCRIPT -->
+<script>
+// ══════════════════════════════════════════════════════════════════════════
+// COMPLIANCE PAGE — Deactivated Clients + Audit Log
+// ══════════════════════════════════════════════════════════════════════════
+(function(){
+
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' }); }
+    catch(_) { return iso; }
+  }
+  function daysUntil(iso) {
+    if (!iso) return null;
+    const ms = new Date(iso).getTime() - Date.now();
+    return Math.ceil(ms / (1000*60*60*24));
+  }
+
+  async function initCompliance() {
+    const sb = window.angoraSupabase;
+    if (!sb) return;
+
+    // Stats
+    const [{ count: activeCnt }, { count: deactCnt }, { count: deletionsCnt }] = await Promise.all([
+      sb.from('angora_accounts').select('id', { count: 'exact', head: true }).or('amazon_key_status.is.null,amazon_key_status.eq.active'),
+      sb.from('angora_accounts').select('id', { count: 'exact', head: true }).eq('amazon_key_status', 'deactivated'),
+      sb.from('angora_data_deletions').select('id', { count: 'exact', head: true }),
+    ]);
+
+    const setStat = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = (v == null ? '—' : v); };
+    setStat('complianceStatActive', activeCnt);
+    setStat('complianceStatDeactivated', deactCnt);
+    setStat('complianceStatDeletions', deletionsCnt);
+
+    // Deactivated list
+    const { data: deact, error: deactErr } = await sb.from('angora_accounts')
+      .select('id, name, slug, amazon_key_status, amazon_key_deactivated_at, amazon_data_delete_by, amazon_data_deleted_at')
+      .eq('amazon_key_status', 'deactivated')
+      .order('amazon_data_delete_by', { ascending: true });
+
+    const listEl = document.getElementById('complianceDeactivatedList');
+    if (deactErr) {
+      listEl.innerHTML = `<div style="padding:24px;color:#ff8888;font-family:'DM Mono',monospace;font-size:11px">${escHtml(deactErr.message||'unknown error')}</div>`;
+    } else if (!deact || deact.length === 0) {
+      listEl.innerHTML = `<div style="padding:36px;text-align:center;color:var(--muted);font-family:'DM Mono',monospace;font-size:11px;line-height:1.6">
+        No deactivated clients right now.<br/>
+        <span style="opacity:0.7">When a client churns or revokes Amazon access, open their account and click <strong style="color:var(--text)">Mark deactivated</strong> on the Overview tab to start their 30-day countdown.</span>
+      </div>`;
+      setStat('complianceStatOverdue', 0);
+    } else {
+      let overdue = 0;
+      const rows = deact.map(a => {
+        const days = daysUntil(a.amazon_data_delete_by);
+        let pillBg = 'rgba(245,166,35,0.12)', pillBorder = 'rgba(245,166,35,0.4)', pillColor = '#f5a623', pillText, pillTitle;
+        if (days == null) { pillText = '—'; pillTitle = 'no deadline'; }
+        else if (days < 0)   { overdue++; pillBg='rgba(233,79,79,0.16)'; pillBorder='rgba(233,79,79,0.55)'; pillColor='#ff8888'; pillText = `${Math.abs(days)}d overdue`; pillTitle = 'past Amazon §1.7 deadline — delete now'; }
+        else if (days <= 7)  { pillBg='rgba(233,79,79,0.1)'; pillBorder='rgba(233,79,79,0.45)'; pillColor='#ff8888'; pillText = `${days}d left`; pillTitle = 'urgent'; }
+        else                 { pillText = `${days}d left`; pillTitle = 'on track'; }
+
+        return `
+        <div style="display:grid;grid-template-columns:1.7fr 1fr 1fr 1.1fr auto;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="color:var(--text);font-weight:600;font-size:13px;margin-bottom:2px">${escHtml(a.name||'(no name)')}</div>
+            <div style="color:var(--muted);font-family:'DM Mono',monospace;font-size:9.5px">${escHtml(a.slug||'')}</div>
+          </div>
+          <div style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--muted)">
+            <div style="font-size:8px;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:2px">Deactivated</div>
+            <div style="color:var(--text)">${escHtml(fmtDate(a.amazon_key_deactivated_at))}</div>
+          </div>
+          <div style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--muted)">
+            <div style="font-size:8px;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:2px">Delete By</div>
+            <div style="color:var(--text)">${escHtml(fmtDate(a.amazon_data_delete_by))}</div>
+          </div>
+          <div title="${escHtml(pillTitle)}" style="display:inline-block;padding:5px 10px;border-radius:999px;background:${pillBg};border:1px solid ${pillBorder};color:${pillColor};font-family:'DM Mono',monospace;font-size:9.5px;font-weight:700;letter-spacing:0.5px;justify-self:start">${escHtml(pillText)}</div>
+          <div style="display:flex;gap:8px">
+            <button onclick="complianceOpenAccount('${escHtml(a.name||'')}')" style="background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;padding:6px 12px;cursor:pointer;letter-spacing:1px;text-transform:uppercase">Open</button>
+            <button onclick="complianceDeleteFromList('${escHtml(a.name||'')}')" style="background:rgba(233,79,79,0.12);border:1px solid rgba(233,79,79,0.55);border-radius:8px;color:#ff8888;font-family:'DM Mono',monospace;font-size:9px;padding:6px 12px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;font-weight:700">Delete</button>
+          </div>
+        </div>`;
+      }).join('');
+      listEl.innerHTML = rows;
+      setStat('complianceStatOverdue', overdue);
+    }
+
+    // Audit log
+    const { data: audit, error: auditErr } = await sb.from('angora_data_deletions')
+      .select('id, account_name, initiated_by_email, initiated_at, completed_at, reason, amazon_notice_id, rows_deleted')
+      .order('initiated_at', { ascending: false })
+      .limit(50);
+
+    const auditEl = document.getElementById('complianceAuditList');
+    if (auditErr) {
+      auditEl.innerHTML = `<div style="padding:24px;color:#ff8888;font-family:'DM Mono',monospace;font-size:11px">${escHtml(auditErr.message||'unknown error')}</div>`;
+    } else if (!audit || audit.length === 0) {
+      auditEl.innerHTML = `<div style="padding:36px;text-align:center;color:var(--muted);font-family:'DM Mono',monospace;font-size:11px">No deletions logged yet.</div>`;
+    } else {
+      const rows = audit.map(r => {
+        const total = (r.rows_deleted && typeof r.rows_deleted === 'object')
+          ? Object.values(r.rows_deleted).reduce((s,v) => s + (Number(v)||0), 0)
+          : 0;
+        return `
+        <div style="display:grid;grid-template-columns:1.5fr 1.4fr 1fr 1fr 0.9fr;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);font-family:'DM Mono',monospace;font-size:10.5px">
+          <div>
+            <div style="color:var(--text);font-weight:600;font-size:12px;font-family:'Syne',sans-serif;margin-bottom:2px">${escHtml(r.account_name||'(unknown)')}</div>
+            <div style="color:var(--muted);font-size:9px">${escHtml((r.id||'').slice(0,8))}</div>
+          </div>
+          <div style="color:var(--muted);font-size:10px;line-height:1.4">${escHtml(r.reason || '(no reason)')}</div>
+          <div>
+            <div style="font-size:8px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);opacity:0.7">Initiated</div>
+            <div style="color:var(--text)">${escHtml(fmtDate(r.initiated_at))}</div>
+          </div>
+          <div>
+            <div style="font-size:8px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);opacity:0.7">By</div>
+            <div style="color:var(--text)">${escHtml(r.initiated_by_email || '—')}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:8px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);opacity:0.7">Rows</div>
+            <div style="color:var(--text);font-weight:700">${total.toLocaleString()}</div>
+          </div>
+        </div>`;
+      }).join('');
+      auditEl.innerHTML = rows;
+    }
+  }
+
+  // ─── Mark Amazon access deactivated (button on Account Overview) ─────
+  async function markDeactivated() {
+    const brand  = (typeof _acctActiveBrand !== 'undefined' && _acctActiveBrand) || null;
+    const acctId = (typeof _acctCache !== 'undefined' && _acctCache && _acctCache.accountId) || null;
+    if (!brand || !acctId) { alert('Open a client account first.'); return; }
+    if (!confirm(
+      `Mark "${brand}" as Amazon-deactivated?\n\n` +
+      'This sets amazon_key_status="deactivated" and starts a 30-day deletion countdown ' +
+      '(Amazon SP-API §1.7 deadline). The client will appear on the Compliance page until ' +
+      'their data is deleted or the status is reverted in Supabase.'
+    )) return;
+
+    const sb = window.angoraSupabase;
+    const now = new Date();
+    const deleteBy = new Date(now.getTime() + 30*24*60*60*1000);
+    const payload = {
+      amazon_key_status: 'deactivated',
+      amazon_key_deactivated_at: now.toISOString(),
+      amazon_data_delete_by: deleteBy.toISOString(),
+    };
+    const { error } = await sb.from('angora_accounts').update(payload).eq('id', acctId);
+    if (error) { alert('Could not save: ' + (error.message||error)); return; }
+
+    // Refresh the Amazon-status row in place
+    refreshAmazonStatusRow(payload);
+    if (typeof angoraToast === 'function') {
+      angoraToast(`${brand} marked deactivated · delete by ${deleteBy.toLocaleDateString()}`, { kind:'info' });
+    }
+  }
+
+  function refreshAmazonStatusRow(rowOrAccount) {
+    const r = rowOrAccount || {};
+    const lineEl = document.getElementById('acctAmazonStatusLine');
+    const subEl  = document.getElementById('acctAmazonStatusSub');
+    const btnEl  = document.getElementById('acctAmazonStatusBtn');
+    const wrap   = document.getElementById('acctAmazonStatusRow');
+    if (!lineEl || !subEl || !btnEl || !wrap) return;
+
+    if (r.amazon_key_status === 'deactivated') {
+      const days = (function(){
+        if (!r.amazon_data_delete_by) return null;
+        return Math.ceil((new Date(r.amazon_data_delete_by).getTime() - Date.now())/(1000*60*60*24));
+      })();
+      const deactDate = r.amazon_key_deactivated_at ? new Date(r.amazon_key_deactivated_at).toLocaleDateString() : '—';
+      const deleteByDate = r.amazon_data_delete_by ? new Date(r.amazon_data_delete_by).toLocaleDateString() : '—';
+      const overdue = (days != null && days < 0);
+
+      wrap.style.background  = overdue ? 'rgba(233,79,79,0.06)' : 'rgba(245,166,35,0.05)';
+      wrap.style.borderColor = overdue ? 'rgba(233,79,79,0.4)'  : 'rgba(245,166,35,0.3)';
+      lineEl.textContent = overdue
+        ? `Deactivated · ${Math.abs(days)} day${Math.abs(days)===1?'':'s'} OVERDUE`
+        : (days != null
+            ? `Deactivated · ${days} day${days===1?'':'s'} until deletion deadline`
+            : 'Deactivated');
+      subEl.innerHTML = `Deactivated on <strong style="color:var(--text)">${deactDate}</strong>. ` +
+                       `Amazon §1.7 deadline: <strong style="color:var(--text)">${deleteByDate}</strong>. ` +
+                       `Use the Danger Zone below to permanently delete this client's data.`;
+      btnEl.textContent = 'Reactivate';
+      btnEl.onclick = function(){ window.acctReactivateAmazon(); };
+    } else {
+      wrap.style.background = 'rgba(245,166,35,0.05)';
+      wrap.style.borderColor = 'rgba(245,166,35,0.3)';
+      lineEl.textContent = 'Active';
+      subEl.textContent = "Client is still authorized. Mark as deactivated when the client churns or revokes Amazon access — this starts Amazon's 30-day deletion countdown.";
+      btnEl.textContent = 'Mark deactivated';
+      btnEl.onclick = function(){ window.acctMarkAmazonDeactivated(); };
+    }
+  }
+
+  async function reactivate() {
+    const brand  = (typeof _acctActiveBrand !== 'undefined' && _acctActiveBrand) || null;
+    const acctId = (typeof _acctCache !== 'undefined' && _acctCache && _acctCache.accountId) || null;
+    if (!brand || !acctId) return;
+    if (!confirm(`Reactivate "${brand}"?\n\nThis clears the deactivation flag and stops the §1.7 deletion countdown.`)) return;
+    const sb = window.angoraSupabase;
+    const { error } = await sb.from('angora_accounts').update({
+      amazon_key_status: 'active',
+      amazon_key_deactivated_at: null,
+      amazon_data_delete_by: null,
+    }).eq('id', acctId);
+    if (error) { alert('Could not save: ' + (error.message||error)); return; }
+    refreshAmazonStatusRow({ amazon_key_status: 'active' });
+  }
+
+  // ─── Hooks called from the deactivated list ──────────────────────────
+  async function openFromList(brandName) {
+    if (typeof switchTool === 'function') switchTool('ops');
+    setTimeout(() => {
+      try {
+        if (typeof acctOpenProfile === 'function') acctOpenProfile(brandName);
+        else if (typeof openAccountByName === 'function') openAccountByName(brandName);
+      } catch(_){}
+    }, 80);
+  }
+  async function deleteFromList(brandName) {
+    await openFromList(brandName);
+    setTimeout(() => {
+      try { window.acctDangerZoneOpen && window.acctDangerZoneOpen(); } catch(_){}
+    }, 600);
+  }
+
+  // ─── Auto-refresh status row when Account profile opens ──────────────
+  // Hook into _acctCache: every time the account view repaints,
+  // we re-fetch the amazon_* columns and refresh the row.
+  async function refreshFromActiveAccount() {
+    try {
+      const acctId = (typeof _acctCache !== 'undefined' && _acctCache && _acctCache.accountId) || null;
+      if (!acctId) return;
+      const sb = window.angoraSupabase;
+      const { data } = await sb.from('angora_accounts')
+        .select('amazon_key_status, amazon_key_deactivated_at, amazon_data_delete_by, amazon_data_deleted_at')
+        .eq('id', acctId).maybeSingle();
+      refreshAmazonStatusRow(data || {});
+    } catch(_){}
+  }
+
+  // Poll for the row appearing in DOM and refresh once it's there.
+  setInterval(() => {
+    const row = document.getElementById('acctAmazonStatusRow');
+    if (row && row.dataset.refreshed !== '1') {
+      row.dataset.refreshed = '1';
+      refreshFromActiveAccount();
+      // Reset the flag if the account changes (best-effort: bind to brand change)
+    }
+  }, 1200);
+
+  // Expose
+  window.initCompliance              = initCompliance;
+  window.acctMarkAmazonDeactivated   = markDeactivated;
+  window.acctReactivateAmazon        = reactivate;
+  window.complianceOpenAccount       = openFromList;
+  window.complianceDeleteFromList    = deleteFromList;
+  window.acctRefreshAmazonStatusRow  = refreshFromActiveAccount;
+})();
+</script>
+<!-- END: AMAZON_COMPLIANCE_PAGE_SCRIPT -->
 <script src="js/auth.js"></script>
 
 
