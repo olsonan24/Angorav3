@@ -9754,6 +9754,12 @@ function toggleSetting(key) {
 
 const USER_PROFILE_TABLE = 'angora_user_profiles';
 const BOOTSTRAP_SUPER_ADMIN_EMAIL = 'proabdulbasit.me@gmail.com';
+// Additional bootstrap super admins — these accounts always have super-admin
+// privileges regardless of what's in angora_user_profiles. Add new owners here.
+const BOOTSTRAP_SUPER_ADMIN_EMAILS = [
+  'proabdulbasit.me@gmail.com',
+  'alex@joinangora.com',
+];
 const USER_ROLE_ADMIN = 'admin';
 const USER_ROLE_SUPER_ADMIN = 'super_admin';
 const USER_STATUS_PENDING = 'pending';
@@ -9800,7 +9806,9 @@ function settingsUserDisplayName(profile) {
 }
 
 function settingsIsBootstrapSuperAdminEmail(email) {
-  return settingsNormalizeEmail(email) === BOOTSTRAP_SUPER_ADMIN_EMAIL;
+  const norm = settingsNormalizeEmail(email);
+  if (!norm) return false;
+  return BOOTSTRAP_SUPER_ADMIN_EMAILS.map(e => settingsNormalizeEmail(e)).includes(norm);
 }
 
 function settingsFormatTimestamp(value) {
