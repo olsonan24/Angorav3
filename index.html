@@ -17739,6 +17739,23 @@ window.calDeleteAudit = async function() {
         <div id="acctAuditHistory" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
 
+
+<!-- BEGIN: AMAZON_COMPLIANCE_DANGER_ZONE -->
+      <!-- Danger Zone — Amazon SP-API §1.7 client-data deletion -->
+      <div style="background:rgba(233,79,79,0.06);border:1px solid rgba(233,79,79,0.35);border-radius:16px;padding:22px;margin-top:8px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap">
+          <div style="flex:1;min-width:260px">
+            <div style="font-family:'DM Mono',monospace;font-size:8px;text-transform:uppercase;letter-spacing:2.5px;color:#ff8888;margin-bottom:10px;opacity:0.9">Danger Zone</div>
+            <div style="color:var(--text);font-weight:600;font-size:13px;margin-bottom:6px">Permanently delete this client's data</div>
+            <div style="color:var(--muted);font-size:11px;line-height:1.55;font-family:'DM Mono',monospace">
+              Removes every row tied to this client across products, inventory, sales, orders, notes, messages and uploaded reports — and the account itself. The action is logged to <code style="color:var(--text)">angora_data_deletions</code> and a deletion certificate PDF is generated. <strong style="color:#ff8888">This cannot be undone.</strong> Use only when the client revokes their Amazon authorization, requests deletion in writing, or Amazon issues a deletion notice.
+            </div>
+          </div>
+          <button onclick="acctDangerZoneOpen()" style="background:rgba(233,79,79,0.12);border:1px solid rgba(233,79,79,0.55);border-radius:9px;color:#ff8888;font-family:'DM Mono',monospace;font-size:9px;padding:9px 16px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;font-weight:700;white-space:nowrap;transition:all 0.15s" onmouseover="this.style.background='rgba(233,79,79,0.22)'" onmouseout="this.style.background='rgba(233,79,79,0.12)'">Permanently Delete Client Data</button>
+        </div>
+      </div>
+<!-- END: AMAZON_COMPLIANCE_DANGER_ZONE -->
+
       </div><!-- /overview panel -->
 
       <!-- SALES TAB — command center dashboard -->
@@ -22223,7 +22240,472 @@ async function gardenSyncPartnerLibrary() {
 
 </script>
 
+<!-- BEGIN: AMAZON_COMPLIANCE_SCRIPT -->
+<style>
+  .acct-dz-overlay {
+    position:fixed; inset:0; z-index:9000;
+    background:rgba(8,9,12,0.78); backdrop-filter:blur(6px);
+    display:none; align-items:center; justify-content:center; padding:24px;
+  }
+  .acct-dz-overlay.active { display:flex; }
+  .acct-dz-card {
+    width:min(640px,100%); max-height:88vh; overflow-y:auto;
+    background:#14151c; border:1px solid var(--border); border-radius:18px;
+    padding:28px 30px; color:var(--text);
+    box-shadow: 0 30px 80px -10px rgba(0,0,0,0.6);
+  }
+  .acct-dz-eyebrow {
+    font-family:'DM Mono',monospace; font-size:8px;
+    text-transform:uppercase; letter-spacing:2.5px;
+    color:#ff8888; opacity:0.9; margin-bottom:12px;
+  }
+  .acct-dz-title {
+    font-size:18px; font-weight:700; line-height:1.25; margin-bottom:14px;
+  }
+  .acct-dz-body { font-size:12px; line-height:1.65; color:var(--muted); font-family:'DM Mono',monospace; }
+  .acct-dz-body strong { color:var(--text); }
+  .acct-dz-table { width:100%; border-collapse:collapse; margin:14px 0 18px; font-family:'DM Mono',monospace; font-size:11px; }
+  .acct-dz-table th { text-align:left; font-size:8px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); padding:6px 6px; font-weight:600; }
+  .acct-dz-table td { padding:6px 6px; border-bottom:1px solid rgba(255,255,255,0.04); color:var(--text); }
+  .acct-dz-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .acct-dz-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:18px; flex-wrap:wrap; }
+  .acct-dz-btn {
+    background:transparent; border:1px solid var(--border); border-radius:9px;
+    color:var(--muted); font-family:'DM Mono',monospace; font-size:9px;
+    padding:9px 16px; cursor:pointer; letter-spacing:1px; text-transform:uppercase; font-weight:700;
+    transition:all 0.15s;
+  }
+  .acct-dz-btn:hover { color:var(--text); border-color:rgba(255,255,255,0.3); }
+  .acct-dz-btn.danger {
+    background:rgba(233,79,79,0.12); border-color:rgba(233,79,79,0.55); color:#ff8888;
+  }
+  .acct-dz-btn.danger:not(:disabled):hover { background:rgba(233,79,79,0.24); }
+  .acct-dz-btn:disabled { opacity:0.35; cursor:not-allowed; }
+  .acct-dz-input {
+    width:100%; box-sizing:border-box;
+    background:#0c0d12; border:1px solid var(--border); border-radius:9px;
+    padding:10px 12px; color:var(--text); font-family:'DM Mono',monospace; font-size:12px;
+    outline:none; margin-top:8px; transition:border-color 0.15s;
+  }
+  .acct-dz-input:focus { border-color:rgba(233,79,79,0.6); }
+  .acct-dz-label {
+    font-family:'DM Mono',monospace; font-size:8px;
+    text-transform:uppercase; letter-spacing:1.5px; color:var(--muted);
+    display:block; margin-top:14px;
+  }
+  .acct-dz-success {
+    background:rgba(80,200,120,0.06); border:1px solid rgba(80,200,120,0.35);
+    border-radius:10px; padding:12px 14px; margin:12px 0 4px;
+    color:#9be8b8; font-family:'DM Mono',monospace; font-size:11px;
+  }
+</style>
+
+<div class="acct-dz-overlay" id="acctDzOverlay" onclick="if(event.target===this) acctDangerZoneClose()">
+  <div class="acct-dz-card" id="acctDzCard">
+    <!-- Filled in by JS based on phase -->
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════
+// AMAZON SP-API §1.7 — Permanently Delete Client Data
+// ══════════════════════════════════════════════════════════════════════════
+// Three phases:
+//   1. PREVIEW   — call preview_client_data_deletion() RPC, show row counts
+//   2. CONFIRM   — type-to-confirm + reason + optional Amazon notice ID
+//   3. RESULT    — show certificate, offer PDF download
+// ══════════════════════════════════════════════════════════════════════════
+(function(){
+  let _dzPhase = null;
+  let _dzPreview = null;       // { table_name: count, ... }
+  let _dzReason = '';
+  let _dzNoticeId = '';
+  let _dzResult  = null;       // { deletion_id, account_name, initiated_at, completed_at, rows_deleted }
+
+  function activeBrand() {
+    return (typeof _acctActiveBrand !== 'undefined' && _acctActiveBrand) ||
+           (typeof _acctCache !== 'undefined' && _acctCache && _acctCache.brand) ||
+           null;
+  }
+  function activeAccountId() {
+    return (typeof _acctCache !== 'undefined' && _acctCache && _acctCache.accountId) || null;
+  }
+
+  function fmt(n) {
+    n = Number(n) || 0;
+    return n.toLocaleString();
+  }
+
+  function rowCountsTable(counts) {
+    const order = [
+      'angora_messages',
+      'angora_message_threads',
+      'angora_inventory',
+      'angora_inventory_history',
+      'angora_daily_sales',
+      'angora_purchase_orders',
+      'angora_notes',
+      'angora_pdf_uploads',
+      'angora_report_uploads',
+      'angora_products',
+      'angora_accounts',
+    ];
+    let total = 0;
+    let rows = '';
+    order.forEach(k => {
+      const n = (counts && counts[k] != null) ? Number(counts[k]) : 0;
+      total += n;
+      rows += `<tr><td>${k}</td><td class="num">${fmt(n)}</td></tr>`;
+    });
+    return `
+      <table class="acct-dz-table">
+        <thead><tr><th>Table</th><th class="num">Rows</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr style="border-top:1px solid var(--border)"><td style="font-weight:700;color:var(--text)">Total</td><td class="num" style="font-weight:700;color:var(--text)">${fmt(total)}</td></tr></tfoot>
+      </table>
+    `;
+  }
+
+  function setCard(html) {
+    const card = document.getElementById('acctDzCard');
+    if (card) card.innerHTML = html;
+  }
+  function show()  { document.getElementById('acctDzOverlay').classList.add('active'); }
+  function hide()  { document.getElementById('acctDzOverlay').classList.remove('active'); }
+
+  // ── PHASE 1: PREVIEW ──────────────────────────────────────────────────
+  async function open_(){
+    const brand = activeBrand();
+    const acctId = activeAccountId();
+    if (!brand || !acctId) {
+      alert('Open a client account first.');
+      return;
+    }
+    _dzPhase = 'preview';
+    _dzPreview = null;
+    _dzReason = '';
+    _dzNoticeId = '';
+    _dzResult = null;
+    setCard(`
+      <div class="acct-dz-eyebrow">Step 1 of 3 — Review</div>
+      <div class="acct-dz-title">Permanently delete <span style="color:#ff8888">${brand.replace(/[<>&]/g,'')}</span>?</div>
+      <div class="acct-dz-body">
+        Loading row counts…
+      </div>
+    `);
+    show();
+
+    const sb = window.angoraSupabase;
+    if (!sb) { setCard(`<div class="acct-dz-body">Supabase client not ready. Refresh and try again.</div>`); return; }
+    const { data, error } = await sb.rpc('preview_client_data_deletion', { p_account_id: acctId });
+    if (error) {
+      setCard(`
+        <div class="acct-dz-eyebrow">Error</div>
+        <div class="acct-dz-title">Could not preview deletion</div>
+        <div class="acct-dz-body" style="color:#ff8888">${(error.message||'unknown error').replace(/[<>&]/g,'')}</div>
+        <div class="acct-dz-actions"><button class="acct-dz-btn" onclick="acctDangerZoneClose()">Close</button></div>
+      `);
+      return;
+    }
+    _dzPreview = data || {};
+
+    setCard(`
+      <div class="acct-dz-eyebrow">Step 1 of 3 — Review what will be deleted</div>
+      <div class="acct-dz-title">Permanently delete <span style="color:#ff8888">${brand.replace(/[<>&]/g,'')}</span>?</div>
+      <div class="acct-dz-body">
+        These are the rows currently stored under this Client. Continuing will <strong>destroy every one of them</strong> across all tables, log the event to <code>angora_data_deletions</code>, and remove the account from the Garden.
+      </div>
+      ${rowCountsTable(_dzPreview)}
+      <div class="acct-dz-body" style="font-size:10.5px">
+        Compliance basis:
+        <span style="color:var(--text)">Amazon SP-API Data Protection Policy §1.7 (Request for Deletion)</span> ·
+        <span style="color:var(--text)">§1.8 (Data Attribution)</span>.
+      </div>
+      <div class="acct-dz-actions">
+        <button class="acct-dz-btn" onclick="acctDangerZoneClose()">Cancel</button>
+        <button class="acct-dz-btn danger" onclick="acctDangerZoneToConfirm()">Continue →</button>
+      </div>
+    `);
+  }
+
+  // ── PHASE 2: CONFIRM ──────────────────────────────────────────────────
+  function toConfirm() {
+    const brand = activeBrand();
+    _dzPhase = 'confirm';
+    setCard(`
+      <div class="acct-dz-eyebrow">Step 2 of 3 — Type to confirm</div>
+      <div class="acct-dz-title">Type the client name to confirm</div>
+      <div class="acct-dz-body">
+        Type <code style="color:#ff8888;background:rgba(233,79,79,0.1);padding:1px 6px;border-radius:4px">${brand.replace(/[<>&]/g,'')}</code> below to enable the delete button.
+      </div>
+      <input id="acctDzConfirmName" class="acct-dz-input" placeholder="Type client name exactly" autocomplete="off"
+             oninput="acctDangerZoneCheckConfirm()" />
+
+      <label class="acct-dz-label">Reason (optional)</label>
+      <input id="acctDzReason" class="acct-dz-input" placeholder="e.g. Client requested deletion via email 2026-04-28" />
+
+      <label class="acct-dz-label">Amazon Notice ID (only if Amazon initiated)</label>
+      <input id="acctDzNoticeId" class="acct-dz-input" placeholder="e.g. SPN-XXXXXXXXX" />
+
+      <div class="acct-dz-actions">
+        <button class="acct-dz-btn" onclick="acctDangerZoneToPreview()">← Back</button>
+        <button class="acct-dz-btn" onclick="acctDangerZoneClose()">Cancel</button>
+        <button id="acctDzDeleteBtn" class="acct-dz-btn danger" disabled onclick="acctDangerZoneExecute()">Permanently delete</button>
+      </div>
+    `);
+    setTimeout(() => { try { document.getElementById('acctDzConfirmName').focus(); } catch(_){} }, 30);
+  }
+
+  function checkConfirm() {
+    const brand = activeBrand();
+    const v = (document.getElementById('acctDzConfirmName').value || '').trim();
+    const btn = document.getElementById('acctDzDeleteBtn');
+    if (!btn) return;
+    btn.disabled = (v !== brand);
+  }
+
+  // ── PHASE 3: EXECUTE ──────────────────────────────────────────────────
+  async function execute_() {
+    const brand = activeBrand();
+    const acctId = activeAccountId();
+    if (!acctId) return;
+
+    _dzReason   = (document.getElementById('acctDzReason').value || '').trim();
+    _dzNoticeId = (document.getElementById('acctDzNoticeId').value || '').trim();
+
+    setCard(`
+      <div class="acct-dz-eyebrow">Step 3 of 3 — Deleting…</div>
+      <div class="acct-dz-title">Erasing ${brand.replace(/[<>&]/g,'')}</div>
+      <div class="acct-dz-body">Running <code>delete_client_data()</code> in a single transaction. Do not close this window.</div>
+    `);
+
+    const sb = window.angoraSupabase;
+    const { data, error } = await sb.rpc('delete_client_data', {
+      p_account_id: acctId,
+      p_reason: _dzReason || null,
+      p_amazon_notice_id: _dzNoticeId || null,
+    });
+    if (error) {
+      setCard(`
+        <div class="acct-dz-eyebrow">Error</div>
+        <div class="acct-dz-title">Deletion failed</div>
+        <div class="acct-dz-body" style="color:#ff8888">${(error.message||'unknown error').replace(/[<>&]/g,'')}</div>
+        <div class="acct-dz-body">No rows were deleted (the function runs in a single transaction). The audit log entry was started; you can mark it complete manually if needed.</div>
+        <div class="acct-dz-actions"><button class="acct-dz-btn" onclick="acctDangerZoneClose()">Close</button></div>
+      `);
+      return;
+    }
+
+    // RPC returns a one-row table.
+    _dzResult = (Array.isArray(data) && data[0]) ? data[0] : data;
+
+    // Clear in-memory caches that referenced the now-gone account.
+    try {
+      if (typeof _acctCache !== 'undefined') {
+        _acctCache.accountId = null; _acctCache.brand = null;
+        _acctCache.products = []; _acctCache.dailySales = [];
+        _acctCache.inventory = []; _acctCache.economics = [];
+        _acctCache.messages = []; _acctCache.invDirty = new Map();
+      }
+      if (typeof _acctActiveBrand !== 'undefined') _acctActiveBrand = null;
+    } catch(_){}
+
+    showCertificate();
+  }
+
+  function showCertificate() {
+    const r = _dzResult || {};
+    const counts = r.rows_deleted || {};
+    const brand  = r.account_name || activeBrand() || '(unknown)';
+    const initiated = r.initiated_at ? new Date(r.initiated_at).toLocaleString() : '—';
+    const completed = r.completed_at ? new Date(r.completed_at).toLocaleString() : '—';
+    let total = 0;
+    Object.values(counts).forEach(v => total += Number(v) || 0);
+
+    setCard(`
+      <div class="acct-dz-eyebrow">Complete · §1.7 certified</div>
+      <div class="acct-dz-title">Client data destroyed</div>
+      <div class="acct-dz-success">
+        ${fmt(total)} row${total===1?'':'s'} permanently deleted across 11 tables. The event has been recorded to <code style="color:#9be8b8">angora_data_deletions</code>; the row id below is the auditable handle Amazon would request if they ever ask for written certification.
+      </div>
+      <table class="acct-dz-table">
+        <tbody>
+          <tr><td style="color:var(--muted)">Client</td><td class="num" style="text-align:left;color:var(--text)">${brand.replace(/[<>&]/g,'')}</td></tr>
+          <tr><td style="color:var(--muted)">Deletion ID</td><td class="num" style="text-align:left;color:var(--text);font-size:10px">${(r.deletion_id||'—').replace(/[<>&]/g,'')}</td></tr>
+          <tr><td style="color:var(--muted)">Initiated</td><td class="num" style="text-align:left;color:var(--text)">${initiated}</td></tr>
+          <tr><td style="color:var(--muted)">Completed</td><td class="num" style="text-align:left;color:var(--text)">${completed}</td></tr>
+          ${r.amazon_notice_id ? `<tr><td style="color:var(--muted)">Amazon notice</td><td class="num" style="text-align:left;color:var(--text)">${(r.amazon_notice_id+'').replace(/[<>&]/g,'')}</td></tr>`:''}
+        </tbody>
+      </table>
+      ${rowCountsTable(counts)}
+      <div class="acct-dz-actions">
+        <button class="acct-dz-btn" onclick="acctDangerZoneClose()">Close</button>
+        <button class="acct-dz-btn danger" onclick="acctDangerZoneDownloadCert()">⤓ Download certificate (PDF)</button>
+      </div>
+    `);
+  }
+
+  // ── Certificate PDF ───────────────────────────────────────────────────
+  function buildCertificateHtml() {
+    const r = _dzResult || {};
+    const counts = r.rows_deleted || {};
+    const brand = r.account_name || '(unknown)';
+    const initiated = r.initiated_at ? new Date(r.initiated_at).toLocaleString() : '—';
+    const completed = r.completed_at ? new Date(r.completed_at).toLocaleString() : '—';
+    let total = 0;
+    Object.values(counts).forEach(v => total += Number(v) || 0);
+
+    const order = [
+      'angora_messages','angora_message_threads',
+      'angora_inventory','angora_inventory_history',
+      'angora_daily_sales','angora_purchase_orders',
+      'angora_notes','angora_pdf_uploads','angora_report_uploads',
+      'angora_products','angora_accounts',
+    ];
+    const rows = order.map(k => `
+      <tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #e6e6e6;font-family:'Helvetica',sans-serif">${k}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e6e6e6;text-align:right;font-variant-numeric:tabular-nums;font-family:'Helvetica',sans-serif">${fmt(counts[k]||0)}</td>
+      </tr>`).join('');
+
+    return `
+      <div style="font-family:'Helvetica',sans-serif;color:#111;padding:0 8px">
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:24px">
+          <div>
+            <div style="font-size:9pt;letter-spacing:0.16em;text-transform:uppercase;color:#555;margin-bottom:6px">Angora · Solution Provider Compliance</div>
+            <div style="font-size:20pt;font-weight:700;line-height:1.1">Certificate of Data Destruction</div>
+            <div style="font-size:9pt;color:#555;margin-top:4px">Amazon SP-API Data Protection Policy §1.7</div>
+          </div>
+          <img src="https://qzfsbqxldyvwxtotppku.supabase.co/storage/v1/object/public/pic/angora_black_logo.png"
+               style="height:36pt;width:auto" alt="Angora" />
+        </div>
+
+        <p style="font-size:10.5pt;line-height:1.55;margin:0 0 14pt 0">
+          Angora hereby certifies that, on the date and time shown below, all data tied
+          to the Client identified in this certificate was permanently and irreversibly
+          deleted from Angora's production systems and is no longer accessible by any
+          live, online, or network-accessible interface.
+        </p>
+
+        <table style="width:100%;border-collapse:collapse;margin-bottom:18pt;font-size:10.5pt">
+          <tbody>
+            <tr><td style="padding:5px 0;color:#666;width:34%">Client</td><td style="padding:5px 0;color:#111;font-weight:700">${brand.replace(/[<>&]/g,'')}</td></tr>
+            <tr><td style="padding:5px 0;color:#666">Deletion ID</td><td style="padding:5px 0;color:#111;font-family:'Menlo',monospace;font-size:9.5pt">${(r.deletion_id||'—').replace(/[<>&]/g,'')}</td></tr>
+            <tr><td style="padding:5px 0;color:#666">Initiated</td><td style="padding:5px 0;color:#111">${initiated}</td></tr>
+            <tr><td style="padding:5px 0;color:#666">Completed</td><td style="padding:5px 0;color:#111">${completed}</td></tr>
+            <tr><td style="padding:5px 0;color:#666">Reason</td><td style="padding:5px 0;color:#111">${(_dzReason||'(not specified)').replace(/[<>&]/g,'')}</td></tr>
+            ${_dzNoticeId ? `<tr><td style="padding:5px 0;color:#666">Amazon Notice ID</td><td style="padding:5px 0;color:#111">${_dzNoticeId.replace(/[<>&]/g,'')}</td></tr>`:''}
+          </tbody>
+        </table>
+
+        <div style="font-size:9pt;letter-spacing:0.12em;text-transform:uppercase;color:#555;margin-bottom:6pt">Rows destroyed by table</div>
+        <table style="width:100%;border-collapse:collapse;font-size:10.5pt">
+          <thead>
+            <tr style="border-bottom:1.5pt solid #111">
+              <th style="text-align:left;padding:6px 8px;font-size:9pt;text-transform:uppercase;letter-spacing:0.06em">Table</th>
+              <th style="text-align:right;padding:6px 8px;font-size:9pt;text-transform:uppercase;letter-spacing:0.06em">Rows deleted</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr style="border-top:1.5pt solid #111">
+              <td style="padding:8px;font-weight:700">Total</td>
+              <td style="padding:8px;text-align:right;font-weight:700">${fmt(total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <p style="font-size:9.5pt;line-height:1.55;color:#444;margin-top:20pt">
+          Storage-layer destruction is performed by Supabase / AWS following industry
+          standards consistent with NIST Special Publication 800-88, <em>Guidelines
+          for Media Sanitization</em>. Backups containing this Client's data are
+          purged on a rolling 30-day window.
+        </p>
+
+        <div style="margin-top:30pt;padding-top:14pt;border-top:1px solid #ddd;font-size:8.5pt;color:#666;line-height:1.5">
+          Generated by Angora · Garden — joinangora.com · support@joinangora.com<br/>
+          This certificate is authoritatively backed by the row in
+          <code style="font-family:'Menlo',monospace">public.angora_data_deletions</code>
+          with id <code style="font-family:'Menlo',monospace">${(r.deletion_id||'—').replace(/[<>&]/g,'')}</code>.
+        </div>
+      </div>
+    `;
+  }
+
+  function downloadCert() {
+    if (!window.html2pdf) {
+      alert('html2pdf library not loaded — cannot generate certificate PDF.');
+      return;
+    }
+    const r = _dzResult || {};
+    const fname = `angora-deletion-certificate-${(r.account_name||'client').replace(/[^a-z0-9]+/gi,'-').toLowerCase()}-${(r.deletion_id||'').slice(0,8)}.pdf`;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:760px;background:#fff;padding:36px;color:#111';
+    wrap.innerHTML = buildCertificateHtml();
+    document.body.appendChild(wrap);
+    html2pdf().from(wrap).set({
+      margin:       [12, 12, 14, 12],
+      filename:     fname,
+      pagebreak:    { mode: ['avoid-all', 'css'] },
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2, backgroundColor: '#ffffff' },
+      jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' },
+    }).save().then(() => {
+      try { wrap.remove(); } catch(_){}
+    }).catch(e => {
+      console.error('cert pdf err', e);
+      try { wrap.remove(); } catch(_){}
+      alert('Could not generate the certificate PDF: ' + (e.message||e));
+    });
+  }
+
+  function close_() {
+    hide();
+    _dzPhase = null;
+    // If we just deleted the active account, kick the user back to the accounts list.
+    if (_dzResult && typeof acctProfileClose === 'function') {
+      try { acctProfileClose(); } catch(_){}
+      try { if (typeof loadAccountsList === 'function') loadAccountsList(); } catch(_){}
+    }
+  }
+
+  // Expose to window for inline onclicks.
+  window.acctDangerZoneOpen           = open_;
+  window.acctDangerZoneClose          = close_;
+  window.acctDangerZoneToConfirm      = toConfirm;
+  window.acctDangerZoneToPreview      = open_;          // re-runs preview
+  window.acctDangerZoneCheckConfirm   = checkConfirm;
+  window.acctDangerZoneExecute        = execute_;
+  window.acctDangerZoneDownloadCert   = downloadCert;
+})();
+</script>
+<!-- END: AMAZON_COMPLIANCE_SCRIPT -->
 <script src="js/auth.js"></script>
+
+
+<!-- BEGIN: AMAZON_COMPLIANCE_FOOTER -->
+<footer id="angoraGardenFooter" style="position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(20,21,28,0.92);backdrop-filter:blur(8px);border-top:1px solid var(--border);padding:6px 18px;font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);display:flex;align-items:center;justify-content:space-between;gap:14px;letter-spacing:0.4px">
+  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+    <span style="opacity:0.55">© Angora · {YEAR}</span>
+    <a href="https://joinangora.com/legal/data-retention" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:none;border-bottom:1px dotted rgba(255,255,255,0.18);transition:color 0.15s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">Data Retention Policy</a>
+    <a href="https://joinangora.com/legal/privacy" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:none;border-bottom:1px dotted rgba(255,255,255,0.18);transition:color 0.15s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">Privacy</a>
+    <a href="mailto:support@joinangora.com" style="color:var(--muted);text-decoration:none;border-bottom:1px dotted rgba(255,255,255,0.18);transition:color 0.15s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">Contact</a>
+  </div>
+  <div style="opacity:0.45;font-size:8px;text-transform:uppercase;letter-spacing:1.4px">Garden · Internal</div>
+</footer>
+<script>
+  // Stamp current year + push body bottom-padding so the footer doesn't cover content.
+  (function(){
+    try {
+      var f = document.getElementById('angoraGardenFooter');
+      if (f) {
+        f.innerHTML = f.innerHTML.replace('{YEAR}', new Date().getFullYear());
+        document.body.style.paddingBottom = '32px';
+      }
+    } catch(_){ }
+  })();
+</script>
+<!-- END: AMAZON_COMPLIANCE_FOOTER -->
 
 </body>
 </html>
