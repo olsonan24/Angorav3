@@ -13203,9 +13203,9 @@ async function slEditProduct(brand, key) {
   document.getElementById('sl_price').value      = p.price   || '';
   document.getElementById('sl_cogs').value       = p.cogs    || '';
   document.getElementById('sl_shipCost').value   = p.shipCost || '';
-  // FBA units on hand — pre-fills from angora_inventory for the matched per-account product.
+  // FBA Fee per unit — pre-fills from angora_products.fba_fee_manual for the matched per-account product.
   // Lazy-loads the cache if Edit was opened from Overview without first visiting Inventory.
-  let fbaQty = '';
+  let fbaFee = '';
   window._slEditingAcctProductId = null;
   try {
     if (window._acctEditReturnBrand) {
@@ -13213,13 +13213,13 @@ async function slEditProduct(brand, key) {
       const acctProd = _slFindAcctProduct(p);
       if (acctProd) {
         window._slEditingAcctProductId = acctProd.id;
-        const invRow = ((window._acctCache?.inventory) || [])
-          .find(r => r.product_id === acctProd.id && r.location === 'fba');
-        if (invRow) fbaQty = Number(invRow.quantity || 0);
+        if (acctProd.fba_fee_manual != null && acctProd.fba_fee_manual !== '') {
+          fbaFee = Number(acctProd.fba_fee_manual);
+        }
       }
     }
   } catch(e) { console.warn('[sl] prefill err', e); }
-  document.getElementById('sl_fba').value        = fbaQty;
+  document.getElementById('sl_fba').value        = fbaFee;
   document.getElementById('sl_l').value          = p.l  || '';
   document.getElementById('sl_w').value          = p.w  || '';
   document.getElementById('sl_h').value          = p.h  || '';
@@ -13254,11 +13254,12 @@ async function slSaveProduct() {
     shipCost:   nv('shipCost'),
     savedAt:    new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }),
   };
-  // FBA on-hand units — read from the modal but NOT written to the workspace product
-  // library (it's per-account inventory, not a library attribute). The actual upsert
-  // to angora_inventory happens below, only when launched from Account Overview.
-  const fbaUnitsRaw = (g('fba')?.value ?? '').toString().trim();
-  const fbaUnits = fbaUnitsRaw === '' ? null : Math.max(0, parseInt(fbaUnitsRaw, 10) || 0);
+  // FBA fee per unit ($) — read from the modal but NOT written to the workspace product
+  // library (it's a per-account economic input, not a library attribute). The fee gets
+  // written to angora_products.fba_fee_manual below, only when launched from Account Overview.
+  // Blank input = leave the existing fba_fee_manual untouched (don't accidentally zero it).
+  const fbaFeeRaw = (g('fba')?.value ?? '').toString().trim();
+  const fbaFeeManual = fbaFeeRaw === '' ? null : Math.max(0, parseFloat(fbaFeeRaw) || 0);
 
   const lib = await plLoadAll();
   if (!lib[brand]) lib[brand] = {};
@@ -13291,51 +13292,50 @@ async function slSaveProduct() {
       const acctProd = _slFindAcctProduct(product);
       const sb = window.angoraSupabase;
       if (acctProd && sb) {
-        // 1) Update angora_products with the editable money columns (price/cogs).
-        //    Skip ship_cost for now — it isn't a column on angora_products in this schema.
+        // 1) Update angora_products with price, cogs, AND the manual FBA fee.
+        //    fba_fee_manual is the per-unit Amazon fulfillment fee in dollars; every
+        //    downstream tab (Inventory, Economics, Client Report) reads this column
+        //    via acctFbaPerUnit() to compute Net Profit, Margin, Net Sales.
+        //    Falls back gracefully if the column doesn't exist yet on this DB.
         const prodPayload = {
           price:      product.price || null,
           cogs:       product.cogs  || null,
           updated_at: new Date().toISOString(),
         };
-        const { error: prodErr } = await sb.from('angora_products').update(prodPayload).eq('id', acctProd.id);
+        if (fbaFeeManual != null) prodPayload.fba_fee_manual = fbaFeeManual;
+        let { error: prodErr } = await sb.from('angora_products').update(prodPayload).eq('id', acctProd.id);
+        if (prodErr && /fba_fee_manual/.test(String(prodErr.message||''))) {
+          delete prodPayload.fba_fee_manual;
+          const retry = await sb.from('angora_products').update(prodPayload).eq('id', acctProd.id);
+          prodErr = retry.error;
+          acctMsg = ' (FBA fee column missing on angora_products — only price/cogs synced)';
+        }
         if (prodErr) {
           console.warn('[sl] angora_products update err', prodErr);
-          acctMsg = ' (price/cogs sync failed: ' + (prodErr.message || 'unknown') + ')';
+          acctMsg = ' (sync failed: ' + (prodErr.message || 'unknown') + ')';
         } else {
           Object.assign(acctProd, {
-            price: prodPayload.price ?? acctProd.price,
-            cogs:  prodPayload.cogs  ?? acctProd.cogs,
+            price:          prodPayload.price          ?? acctProd.price,
+            cogs:           prodPayload.cogs           ?? acctProd.cogs,
+            fba_fee_manual: (fbaFeeManual != null) ? fbaFeeManual : acctProd.fba_fee_manual,
           });
-        }
-
-        // 2) Upsert FBA on-hand units to angora_inventory if the user entered a value.
-        //    Blank input = leave existing FBA quantity untouched (don't accidentally zero it).
-        if (fbaUnits != null) {
-          const invPayload = [{
-            product_id: acctProd.id,
-            location:   'fba',
-            quantity:   fbaUnits,
-          }];
-          const { error: invErr } = await sb
-            .from('angora_inventory')
-            .upsert(invPayload, { onConflict: 'product_id,location' });
-          if (invErr) {
-            console.warn('[sl] angora_inventory upsert err', invErr);
-            acctMsg = (acctMsg || '') + ' (FBA inventory sync failed: ' + (invErr.message || 'unknown') + ')';
-          } else {
-            // Patch local cache so the Inventory tab re-renders with the new FBA total.
-            cache.inventory = cache.inventory || [];
-            const idx = cache.inventory.findIndex(r => r.product_id === acctProd.id && r.location === 'fba');
-            if (idx >= 0) cache.inventory[idx].quantity = fbaUnits;
-            else cache.inventory.push({ product_id: acctProd.id, location: 'fba', quantity: fbaUnits });
+          // Make sure every tab in this account session sees the new fee.
+          if (window._acctCache && Array.isArray(window._acctCache.products)) {
+            const cp = window._acctCache.products.find(x => x.id === acctProd.id);
+            if (cp) {
+              if (prodPayload.price != null) cp.price = prodPayload.price;
+              if (prodPayload.cogs  != null) cp.cogs  = prodPayload.cogs;
+              if (fbaFeeManual != null)      cp.fba_fee_manual = fbaFeeManual;
+            }
           }
         }
 
-        // 3) Refresh visible account tabs (best-effort).
+        // 2) Refresh visible account tabs in place so the new FBA fee
+        //    cascades into Net Profit / Margin / Net Sales immediately.
         try { if (typeof acctRenderInventoryTab === 'function') acctRenderInventoryTab(); } catch(_) {}
         try { if (typeof acctRenderEconomicsTab === 'function') acctRenderEconomicsTab(); } catch(_) {}
-      } else if (!acctProd && (fbaUnits != null || product.price || product.cogs)) {
+        try { if (typeof acctRenderOverviewTab === 'function') acctRenderOverviewTab(); } catch(_) {}
+      } else if (!acctProd && (fbaFeeManual != null || product.price || product.cogs)) {
         acctMsg = ' (no matching product on this account yet — add it from the Inventory tab first so the modal can sync into it)';
       }
     }
@@ -17163,8 +17163,8 @@ window.calDeleteAudit = async function() {
         <input class="sl-inp" id="sl_shipCost" type="number" min="0" step="0.01" placeholder="0.00">
       </div>
       <div class="sl-field">
-        <div class="sl-lbl">FBA on-hand (units)</div>
-        <input class="sl-inp" id="sl_fba" type="number" min="0" step="1" placeholder="0" title="Units currently in Amazon FBA for this account. Saves to angora_inventory.quantity (location=fba) and refreshes the Inventory + Economics tabs immediately.">
+        <div class="sl-lbl">FBA Fee ($/unit)</div>
+        <input class="sl-inp" id="sl_fba" type="number" min="0" step="0.01" placeholder="0.00" title="Amazon FBA fulfillment fee per unit, in dollars. Saves to angora_products.fba_fee_manual and is used by every tab (Inventory, Economics, Client Report) to compute Net Profit, Margin, and Net Sales for this product.">
       </div>
     </div>
 
