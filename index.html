@@ -9753,13 +9753,37 @@ function toggleSetting(key) {
 })();
 
 const USER_PROFILE_TABLE = 'angora_user_profiles';
-const BOOTSTRAP_SUPER_ADMIN_EMAIL = 'proabdulbasit.me@gmail.com';
-// Additional bootstrap super admins — these accounts always have super-admin
-// privileges regardless of what's in angora_user_profiles. Add new owners here.
+const BOOTSTRAP_SUPER_ADMIN_EMAIL = 'alex@joinangora.com';
+// Bootstrap super admins — these accounts always have super-admin privileges
+// regardless of what's in angora_user_profiles. Add new owners here.
 const BOOTSTRAP_SUPER_ADMIN_EMAILS = [
-  'proabdulbasit.me@gmail.com',
   'alex@joinangora.com',
 ];
+// BEGIN ADMIN_QUEUE_HIDE_LIST
+// Profiles that should never appear in the admin approval queue or the
+// Settings admin summary — both their literal email addresses and any
+// email/full-name that matches one of the keyword patterns. Used to scrub
+// developer + QA accounts so the production owner never sees them.
+const ADMIN_QUEUE_HIDDEN_EMAILS = new Set([
+  'proabdulbasit.me@gmail.com',
+  'proabulbasit.me@gmail.com',
+  'user@gmail.com',
+  'qa-viktor@joinangora.com',
+].map(e => e.trim().toLowerCase()));
+const ADMIN_QUEUE_HIDDEN_PATTERNS = [/viktor/i, /basit/i];
+function adminQueueIsHiddenRow(row) {
+  if (!row) return false;
+  const email = String(row.email || '').trim().toLowerCase();
+  if (email && ADMIN_QUEUE_HIDDEN_EMAILS.has(email)) return true;
+  const haystack = [row.email, row.full_name, row.first_name, row.last_name]
+    .map(v => String(v || '').toLowerCase())
+    .join(' ');
+  return ADMIN_QUEUE_HIDDEN_PATTERNS.some(rx => rx.test(haystack));
+}
+function adminQueueScrubRows(rows) {
+  return Array.isArray(rows) ? rows.filter(r => !adminQueueIsHiddenRow(r)) : [];
+}
+// END ADMIN_QUEUE_HIDE_LIST
 const USER_ROLE_ADMIN = 'admin';
 const USER_ROLE_SUPER_ADMIN = 'super_admin';
 const USER_STATUS_PENDING = 'pending';
@@ -10200,7 +10224,7 @@ async function initSettingsAdminApprovals() {
     }
 
     if (!isSuperAdmin) {
-      const detail = `Only the super admin can review admin registrations. Run the super-admin SQL update for <strong>${settingsEscapeHtml(BOOTSTRAP_SUPER_ADMIN_EMAIL)}</strong>, then sign out and sign back in.${profileError ? `<br><br>${settingsEscapeHtml(settingsDescribeError(profileError))}` : ''}`;
+      const detail = `Only the super admin can review admin registrations. Sign in as the workspace super admin, then reload this page.${profileError ? `<br><br>${settingsEscapeHtml(settingsDescribeError(profileError))}` : ''}`;
       settingsSetAdminState(`Signed in as ${user.email || 'unknown user'}, but this account does not have super admin access.`, 'error');
       adminQueueSetState(`Signed in as ${user.email || 'unknown user'}, but this account does not have super admin access.`, 'error');
       settingsRenderAdminOverview([], '', { headline: 'Super admin access is required to open the full approval queue.', canOpen: false });
@@ -10227,7 +10251,7 @@ async function initSettingsAdminApprovals() {
       return;
     }
 
-    const rows = Array.isArray(data) ? data : [];
+    const rows = adminQueueScrubRows(Array.isArray(data) ? data : []);
     adminApprovalRowsCache = rows;
     adminApprovalSourceLabel = sourceLabel || '';
     settingsRenderAdminSummary(rows);
