@@ -14,7 +14,7 @@
   const STATUS_ACTIVE = 'active';
   const STATUS_REJECTED = 'rejected';
   /** Password reset link always goes to production so email works from any environment */
-  const PASSWORD_RESET_REDIRECT_URL = 'https://angorav2.vercel.app/';
+  const PASSWORD_RESET_REDIRECT_URL = 'https://garden.joinangora.com/';
 
   if (!window.supabase || typeof window.supabase.createClient !== 'function') {
     console.error('[Auth] Supabase client script is missing.');
