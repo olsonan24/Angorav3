@@ -9763,14 +9763,45 @@ const BOOTSTRAP_SUPER_ADMIN_EMAILS = [
 // Profiles that should never appear in the admin approval queue or the
 // Settings admin summary — both their literal email addresses and any
 // email/full-name that matches one of the keyword patterns. Used to scrub
-// developer + QA accounts so the production owner never sees them.
+// developer + QA + test accounts so the production owner never sees them.
 const ADMIN_QUEUE_HIDDEN_EMAILS = new Set([
   'proabdulbasit.me@gmail.com',
   'proabulbasit.me@gmail.com',
   'user@gmail.com',
+  'user2@gmail.com',
+  'user4@gmail.com',
   'qa-viktor@joinangora.com',
+  'bast1@gmail.com',
+  'bart@gmail.com',
+  'abc123@gmail.com',
+  'team-bot-3026@joinangora.com',
+  'youwillalertme@gmail.com',
+  'test1243059@gmail.com',
+  'test1@gmail.com',
+  'test2@gmail.com',
+  'test3@gmail.com',
+  'test12345@gmail.com',
+  'test12345432@gmail.com',
+  'test12345654334543@gmail.com',
+  'test1234565434543@gmail.com',
+  'testteestteststest@gmail.com',
+  'test@gmil.com',
 ].map(e => e.trim().toLowerCase()));
-const ADMIN_QUEUE_HIDDEN_PATTERNS = [/viktor/i, /basit/i];
+// Pattern matchers — ANY email or full-name matching one of these gets
+// hidden from the admin queue, period. Add new keywords here.
+const ADMIN_QUEUE_HIDDEN_PATTERNS = [
+  /viktor/i,
+  /basit/i,
+  /\btest\b/i,           // bare 'test'
+  /test\d/i,             // test1, test1234, test12345...
+  /testtest/i,           // testteestteststest
+  /^user\d*@/i,          // user@, user2@, user4@... — placeholder accounts
+  /team-bot/i,
+  /youwillalertme/i,
+  /\babc\d+@/i,          // abc123@... etc.
+  /\bbast\d/i,           // bast1@... (Basit-adjacent typos)
+  /\bbart\b/i,
+];
 function adminQueueIsHiddenRow(row) {
   if (!row) return false;
   const email = String(row.email || '').trim().toLowerCase();
@@ -22492,6 +22523,43 @@ async function gardenSyncPartnerLibrary() {
       alert('Open a client account first.');
       return;
     }
+    // BEGIN AMAZON_DELETE_BEN_ONLY_GATE
+    // Hard gate: only ben@joinangora.com is allowed to run the Permanently-
+    // Delete-Client-Data flow. Everyone else (even other super admins) gets
+    // a friendly "you need to be a super admin" notice instead of the modal.
+    // The Postgres RPC enforces the same rule as a backend safety net.
+    try {
+      const sb0 = window.angoraSupabase;
+      const { data: ud0 } = sb0 ? await sb0.auth.getUser() : { data: null };
+      const meEmail = (ud0 && ud0.user && ud0.user.email || '').trim().toLowerCase();
+      if (meEmail !== 'ben@joinangora.com') {
+        setCard(`
+          <div class="acct-dz-eyebrow">Permission required</div>
+          <div class="acct-dz-title">You need to be a super admin to delete Amazon data.</div>
+          <div class="acct-dz-body">
+            For Amazon SP-API compliance, only <strong>ben@joinangora.com</strong> is
+            authorized to permanently delete client data. If you need this done,
+            ping Ben and he'll run it from his account.
+          </div>
+          <div class="acct-dz-actions">
+            <button class="acct-dz-btn" onclick="acctDangerZoneClose()">Close</button>
+          </div>
+        `);
+        show();
+        return;
+      }
+    } catch (e) {
+      console.warn('[Angora][DangerZone] auth check failed', e);
+      setCard(`
+        <div class="acct-dz-eyebrow">Permission required</div>
+        <div class="acct-dz-title">You need to be a super admin to delete Amazon data.</div>
+        <div class="acct-dz-body">Could not verify your account. Please refresh and sign in again.</div>
+        <div class="acct-dz-actions"><button class="acct-dz-btn" onclick="acctDangerZoneClose()">Close</button></div>
+      `);
+      show();
+      return;
+    }
+    // END AMAZON_DELETE_BEN_ONLY_GATE
     _dzPhase = 'preview';
     _dzPreview = null;
     _dzReason = '';
