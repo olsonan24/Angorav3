@@ -14,7 +14,7 @@
   const STATUS_ACTIVE = 'active';
   const STATUS_REJECTED = 'rejected';
   /** Password reset link always goes to production so email works from any environment */
-  const PASSWORD_RESET_REDIRECT_URL = 'https://garden.joinangora.com/';
+  const PASSWORD_RESET_REDIRECT_URL = 'https://angorav2.vercel.app/';
 
   if (!window.supabase || typeof window.supabase.createClient !== 'function') {
     console.error('[Auth] Supabase client script is missing.');
@@ -766,9 +766,92 @@
   attachEvents();
   setView('login');
 
+  /**
+   * Resolve an auth callback in the page URL BEFORE the regular session check.
+   * Supabase password-reset emails redirect users back here with one of:
+   *   • ?token_hash=XXX&type=recovery           (PKCE token-hash flow)
+   *   • ?code=XXX[&type=recovery]               (PKCE code flow)
+   *   • #access_token=XXX&type=recovery&...     (implicit hash flow)
+   *   • ?error=...&error_code=...               (expired/invalid link)
+   * If we don't actively handle these on load, the user lands on the login
+   * form with the recovery token sitting unused in the URL — exactly the
+   * "click reset → end up at sign-in page" bug we're fixing.
+   * Returns true when the URL has been resolved and normal init should stop.
+   */
+  async function handleAuthCallbackInUrl() {
+    const params = getAuthParams();
+    const { type, tokenHash, errorCode, searchParams, hashParams } = params;
+    const code = searchParams.get('code') || hashParams.get('code') || '';
+    const accessToken = hashParams.get('access_token') || '';
+
+    // Path A: explicit Supabase error in the URL.
+    if (errorCode) {
+      await establishRecoverySession();
+      return true;
+    }
+
+    // Path B: recovery token_hash (PKCE) — verifyOtp + switch to reset view.
+    if (type === 'recovery' && tokenHash) {
+      await establishRecoverySession();
+      return true;
+    }
+
+    // Path C: bare ?code=XXX (PKCE code flow). May be recovery OR a normal
+    // OAuth/magic-link sign-in. Exchange the code, then check whether the
+    // SDK fired PASSWORD_RECOVERY (which our onAuthStateChange listener
+    // turns into state.recoveryMode = true).
+    if (code) {
+      try {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) {
+          state.recoveryMode = false;
+          setView('forgot', { clearMessage: false });
+          lockUI(true);
+          showMessage(error.message || 'Recovery link is invalid or has expired. Request a new reset link.', 'error');
+          clearAuthParams();
+          return true;
+        }
+        // Yield a microtask so onAuthStateChange can run and flip recoveryMode.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        clearAuthParams();
+        if (state.recoveryMode) {
+          // Recovery view already set by the PASSWORD_RECOVERY handler.
+          return true;
+        }
+        // Normal sign-in code exchange — fall through to the standard
+        // session check so the dashboard can mount.
+        return false;
+      } catch (e) {
+        console.warn('exchangeCodeForSession failed', e);
+        clearAuthParams();
+        return false;
+      }
+    }
+
+    // Path D: implicit hash flow (#access_token=…&type=recovery). The SDK
+    // auto-extracts the hash on init; we just need to wait one tick for
+    // onAuthStateChange to fire PASSWORD_RECOVERY or SIGNED_IN.
+    if (accessToken || type === 'recovery') {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (state.recoveryMode) return true;
+      // type=recovery with no other params means the SDK already consumed
+      // an implicit-flow recovery hash; route through the existing handler
+      // to be safe.
+      if (type === 'recovery') {
+        await establishRecoverySession();
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   // Real auth: check for an existing session. Lock UI if none, unlock if signed in.
   (async () => {
     try {
+      const handled = await handleAuthCallbackInUrl();
+      if (handled) return;
+
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user || null;
       applyAuthUI(user);
