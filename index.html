@@ -13126,7 +13126,7 @@ function slOpenModal(prefillBrand) {
   _slEditingKey = null;
   document.getElementById('slModalTitle').textContent = 'Add Product';
   // Clear fields
-  ['sl_brand','sl_name','sl_asin','sl_price','sl_cogs','sl_shipCost','sl_l','sl_w','sl_h','sl_oz'].forEach(id => {
+  ['sl_brand','sl_name','sl_asin','sl_price','sl_cogs','sl_shipCost','sl_fba','sl_l','sl_w','sl_h','sl_oz'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -13144,26 +13144,79 @@ function slOpenModal(prefillBrand) {
   setTimeout(() => document.getElementById('sl_brand').focus(), 50);
 }
 
-function slEditProduct(brand, key) {
+// Match a workspace-library product (by ASIN, then SKU, then name — case-insensitive,
+// trimmed) to a per-account angora_products row. Returns the matched row or null.
+function _slFindAcctProduct(libProd) {
+  const cache = window._acctCache || {};
+  const products = cache.products || [];
+  const targetAsin = (libProd?.asin || '').toUpperCase().trim();
+  const targetSku  = (libProd?.sku  || '').toUpperCase().trim();
+  const targetName = (libProd?.name || '').trim().toLowerCase();
+  return products.find(pr => {
+    const a = (pr.asin || '').toUpperCase().trim();
+    if (a && targetAsin && a === targetAsin) return true;
+    const s = (pr.sku || '').toUpperCase().trim();
+    if (s && targetSku && s === targetSku) return true;
+    const n = (pr.name || '').trim().toLowerCase();
+    if (n && targetName && n === targetName) return true;
+    return false;
+  }) || null;
+}
+
+// Hydrate _acctCache.products + .inventory for the account currently being edited
+// if they haven't been loaded yet (e.g. user opened Edit from Overview without
+// first clicking the Inventory tab). No-op if already populated.
+async function _slEnsureAcctCache(brand) {
+  if (!brand) return;
+  const cache = window._acctCache = window._acctCache || { products: [], inventory: [] };
+  if (cache.brand === brand && (cache.products || []).length) return;
+  try {
+    const accountId = await acctEnsureAccount(brand);
+    if (!accountId) return;
+    cache.accountId = accountId;
+    cache.brand = brand;
+    cache.products = await acctLoadProducts(accountId) || [];
+    const ids = cache.products.map(p => p.id);
+    cache.inventory = ids.length ? (await acctLoadInventory(ids) || []) : [];
+  } catch(e) { console.warn('[sl] _slEnsureAcctCache err', e); }
+}
+
+async function slEditProduct(brand, key) {
   _slEditingKey = { brand, key };
-  plLoadAll().then(lib => {
-    const p = lib[brand]?.[key];
-    if (!p) return;
-    document.getElementById('slModalTitle').textContent = 'Edit Product';
-    document.getElementById('sl_brand').value      = brand;
-    document.getElementById('sl_name').value       = p.name || '';
-    document.getElementById('sl_asin').value       = p.asin || '';
-    document.getElementById('sl_category').value   = p.category || 'home_kitchen';
-    document.getElementById('sl_price').value      = p.price   || '';
-    document.getElementById('sl_cogs').value       = p.cogs    || '';
-    document.getElementById('sl_shipCost').value   = p.shipCost || '';
-    document.getElementById('sl_l').value          = p.l  || '';
-    document.getElementById('sl_w').value          = p.w  || '';
-    document.getElementById('sl_h').value          = p.h  || '';
-    document.getElementById('sl_oz').value         = p.oz || '';
-    document.getElementById('sl_weightUnit').value = p.weightUnit || 'oz';
-    document.getElementById('slOverlay').classList.add('open');
-  });
+  const lib = await plLoadAll();
+  const p = lib[brand]?.[key];
+  if (!p) { console.warn('[sl] no library entry for', brand, key); return; }
+  document.getElementById('slModalTitle').textContent = 'Edit Product';
+  document.getElementById('sl_brand').value      = brand;
+  document.getElementById('sl_name').value       = p.name || '';
+  document.getElementById('sl_asin').value       = p.asin || '';
+  document.getElementById('sl_category').value   = p.category || 'home_kitchen';
+  document.getElementById('sl_price').value      = p.price   || '';
+  document.getElementById('sl_cogs').value       = p.cogs    || '';
+  document.getElementById('sl_shipCost').value   = p.shipCost || '';
+  // FBA units on hand — pre-fills from angora_inventory for the matched per-account product.
+  // Lazy-loads the cache if Edit was opened from Overview without first visiting Inventory.
+  let fbaQty = '';
+  window._slEditingAcctProductId = null;
+  try {
+    if (window._acctEditReturnBrand) {
+      await _slEnsureAcctCache(window._acctEditReturnBrand);
+      const acctProd = _slFindAcctProduct(p);
+      if (acctProd) {
+        window._slEditingAcctProductId = acctProd.id;
+        const invRow = ((window._acctCache?.inventory) || [])
+          .find(r => r.product_id === acctProd.id && r.location === 'fba');
+        if (invRow) fbaQty = Number(invRow.quantity || 0);
+      }
+    }
+  } catch(e) { console.warn('[sl] prefill err', e); }
+  document.getElementById('sl_fba').value        = fbaQty;
+  document.getElementById('sl_l').value          = p.l  || '';
+  document.getElementById('sl_w').value          = p.w  || '';
+  document.getElementById('sl_h').value          = p.h  || '';
+  document.getElementById('sl_oz').value         = p.oz || '';
+  document.getElementById('sl_weightUnit').value = p.weightUnit || 'oz';
+  document.getElementById('slOverlay').classList.add('open');
 }
 
 function slCloseModal() {
@@ -13192,6 +13245,11 @@ async function slSaveProduct() {
     shipCost:   nv('shipCost'),
     savedAt:    new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }),
   };
+  // FBA on-hand units — read from the modal but NOT written to the workspace product
+  // library (it's per-account inventory, not a library attribute). The actual upsert
+  // to angora_inventory happens below, only when launched from Account Overview.
+  const fbaUnitsRaw = (g('fba')?.value ?? '').toString().trim();
+  const fbaUnits = fbaUnitsRaw === '' ? null : Math.max(0, parseInt(fbaUnitsRaw, 10) || 0);
 
   const lib = await plLoadAll();
   if (!lib[brand]) lib[brand] = {};
@@ -13209,6 +13267,74 @@ async function slSaveProduct() {
 
   await plSaveAll(lib);
   // Do NOT clear _plCache — plSaveAll already updated it
+
+  // ── Per-account propagation (only when launched from the Account Overview Edit button) ──
+  // Pushes price/COGS/ship-cost onto angora_products and FBA units onto angora_inventory
+  // so the Inventory tab, Economics tab, FBA column, and next Generate Report all
+  // reflect the new numbers immediately.
+  let acctMsg = '';
+  try {
+    if (window._acctEditReturnBrand) {
+      // Make sure we have the per-account product list for matching even if the user
+      // opened the modal from Overview before visiting the Inventory tab.
+      await _slEnsureAcctCache(window._acctEditReturnBrand);
+      const cache = window._acctCache || {};
+      const acctProd = _slFindAcctProduct(product);
+      const sb = window.angoraSupabase;
+      if (acctProd && sb) {
+        // 1) Update angora_products with the editable money columns (price/cogs).
+        //    Skip ship_cost for now — it isn't a column on angora_products in this schema.
+        const prodPayload = {
+          price:      product.price || null,
+          cogs:       product.cogs  || null,
+          updated_at: new Date().toISOString(),
+        };
+        const { error: prodErr } = await sb.from('angora_products').update(prodPayload).eq('id', acctProd.id);
+        if (prodErr) {
+          console.warn('[sl] angora_products update err', prodErr);
+          acctMsg = ' (price/cogs sync failed: ' + (prodErr.message || 'unknown') + ')';
+        } else {
+          Object.assign(acctProd, {
+            price: prodPayload.price ?? acctProd.price,
+            cogs:  prodPayload.cogs  ?? acctProd.cogs,
+          });
+        }
+
+        // 2) Upsert FBA on-hand units to angora_inventory if the user entered a value.
+        //    Blank input = leave existing FBA quantity untouched (don't accidentally zero it).
+        if (fbaUnits != null) {
+          const invPayload = [{
+            product_id: acctProd.id,
+            location:   'fba',
+            quantity:   fbaUnits,
+          }];
+          const { error: invErr } = await sb
+            .from('angora_inventory')
+            .upsert(invPayload, { onConflict: 'product_id,location' });
+          if (invErr) {
+            console.warn('[sl] angora_inventory upsert err', invErr);
+            acctMsg = (acctMsg || '') + ' (FBA inventory sync failed: ' + (invErr.message || 'unknown') + ')';
+          } else {
+            // Patch local cache so the Inventory tab re-renders with the new FBA total.
+            cache.inventory = cache.inventory || [];
+            const idx = cache.inventory.findIndex(r => r.product_id === acctProd.id && r.location === 'fba');
+            if (idx >= 0) cache.inventory[idx].quantity = fbaUnits;
+            else cache.inventory.push({ product_id: acctProd.id, location: 'fba', quantity: fbaUnits });
+          }
+        }
+
+        // 3) Refresh visible account tabs (best-effort).
+        try { if (typeof acctRenderInventoryTab === 'function') acctRenderInventoryTab(); } catch(_) {}
+        try { if (typeof acctRenderEconomicsTab === 'function') acctRenderEconomicsTab(); } catch(_) {}
+      } else if (!acctProd && (fbaUnits != null || product.price || product.cogs)) {
+        acctMsg = ' (no matching product on this account yet — add it from the Inventory tab first so the modal can sync into it)';
+      }
+    }
+  } catch (e) {
+    console.warn('[sl] account sync exception', e);
+    acctMsg = ' (account sync error)';
+  }
+
   slCloseModal();
   _slActiveBrand = brand;
   await slRender();
@@ -13218,6 +13344,7 @@ async function slSaveProduct() {
     await acctRenderProducts(window._acctEditReturnBrand);
     window._acctEditReturnBrand = null;
   }
+  if (acctMsg) alert('Saved' + acctMsg);
 }
 
 async function slDeleteProduct(brand, key) {
@@ -16963,7 +17090,10 @@ window.calDeleteAudit = async function() {
         <div class="sl-lbl">Ship Cost / Unit ($)</div>
         <input class="sl-inp" id="sl_shipCost" type="number" min="0" step="0.01" placeholder="0.00">
       </div>
-      <div class="sl-field"></div>
+      <div class="sl-field">
+        <div class="sl-lbl">FBA on-hand (units)</div>
+        <input class="sl-inp" id="sl_fba" type="number" min="0" step="1" placeholder="0" title="Units currently in Amazon FBA for this account. Saves to angora_inventory.quantity (location=fba) and refreshes the Inventory + Economics tabs immediately.">
+      </div>
     </div>
 
     <div class="sl-divider">Dimensions &amp; Weight</div>
