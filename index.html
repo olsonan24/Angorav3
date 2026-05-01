@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Angora Tools</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=Inter:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -5352,6 +5352,147 @@
   .sl-empty svg { opacity:0.15; margin-bottom:16px; }
   .sl-empty-t { font-family:'Syne',sans-serif; font-size:14px; font-weight:700; color:var(--text); margin-bottom:8px; }
   .sl-empty-s { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); line-height:1.7; }
+
+  /* ─────────────────────────────────────────────────────────────────────
+     skulib-layout-v1: Payonex-style layout adapted to Garden's fonts and
+     colors. Keeps Syne + DM Mono and the existing dark theme; just steals
+     the comfortable spacing, pill buttons, big headline, and softer cards
+     from the reference. Scoped to #pageSkulib only.
+     ───────────────────────────────────────────────────────────────────── */
+  #pageSkulib .sl-wrap { padding: 40px 56px 96px; max-width: 1280px; }
+
+  /* Header — bigger, more breathing room (matches Payonex "Dashboard" treatment) */
+  #pageSkulib .sl-header { margin-bottom: 36px; align-items: center; }
+  #pageSkulib .sl-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 34px;
+    font-weight: 800;
+    color: var(--text);
+    letter-spacing: -0.025em;
+    line-height: 1.05;
+  }
+  #pageSkulib .sl-subtitle {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* Brand tiles — softer, more padding, comfortable hover */
+  #pageSkulib .sl-brand-grid {
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  #pageSkulib .sl-brand-tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 22px 24px;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.18);
+    transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s, background 0.18s;
+  }
+  #pageSkulib .sl-brand-tile:hover {
+    border-color: rgba(107,143,255,0.45);
+    box-shadow: 0 8px 24px rgba(107,143,255,0.10), 0 1px 0 rgba(0,0,0,0.18);
+    transform: translateY(-1px);
+  }
+  #pageSkulib .sl-brand-tile.sl-active {
+    border-color: var(--accent);
+    background: rgba(107,143,255,0.08);
+    box-shadow: 0 8px 24px rgba(107,143,255,0.14);
+  }
+  #pageSkulib .sl-brand-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 6px;
+    letter-spacing: -0.005em;
+  }
+  #pageSkulib .sl-brand-count {
+    font-family: 'DM Mono', monospace;
+    font-size: 9.5px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  /* Search input — bigger, softer, focus glow */
+  #pageSkulib input[type="text"]#slAccountSearch {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 999px !important;
+    font-family: 'DM Mono', monospace !important;
+    font-size: 11px !important;
+    padding: 11px 14px 11px 38px !important;
+  }
+  #pageSkulib input[type="text"]#slAccountSearch:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px rgba(107,143,255,0.14) !important;
+  }
+
+  /* Buttons — pill style, comfortable padding */
+  #pageSkulib .sl-btn-primary {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: 999px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 12px;
+    padding: 10px 20px;
+    letter-spacing: 0.01em;
+    transition: opacity 0.15s, transform 0.15s;
+  }
+  #pageSkulib .sl-btn-primary:hover { opacity: 0.92; transform: translateY(-1px); }
+  #pageSkulib .sl-btn-ghost {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    padding: 9px 16px;
+    letter-spacing: 0.04em;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  #pageSkulib .sl-btn-ghost:hover {
+    border-color: var(--accent);
+    color: var(--text);
+    background: rgba(107,143,255,0.06);
+  }
+
+  /* Selection action bar — softer + pill buttons */
+  #pageSkulib #slSelectionBar { border-radius: 14px !important; padding: 12px 18px !important; }
+  #pageSkulib #slSelectionBar button { border-radius: 999px !important; }
+
+  /* Product panel — bigger radius, softer shadow */
+  #pageSkulib .sl-panel {
+    border-radius: 20px;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.18);
+  }
+  #pageSkulib .sl-panel-hdr { padding: 20px 26px; }
+  #pageSkulib .sl-panel-brand { font-size: 18px; letter-spacing: -0.015em; }
+  #pageSkulib .sl-panel-meta { font-size: 9.5px; margin-top: 5px; letter-spacing: 0.05em; }
+
+  /* Product table — slightly larger cells */
+  #pageSkulib .sl-tbl th { padding: 12px 16px; font-size: 8.5px; letter-spacing: 0.16em; }
+  #pageSkulib .sl-tbl td { padding: 12px 16px; font-size: 11px; }
+  #pageSkulib .sl-act-btn { border-radius: 999px; padding: 4px 10px; font-size: 8.5px; letter-spacing: 0.06em; }
+
+  /* Modal — gentler shadow + bigger title */
+  #pageSkulib .sl-modal { border-radius: 22px; box-shadow: 0 24px 60px rgba(0,0,0,0.45); padding: 34px; }
+  #pageSkulib .sl-modal-title { font-size: 19px; letter-spacing: -0.015em; margin-bottom: 22px; }
+  #pageSkulib .sl-inp { border-radius: 10px; padding: 9px 13px; }
+  #pageSkulib .sl-save-btn { border-radius: 999px; padding: 10px 24px; font-family: 'Syne', sans-serif; }
+  #pageSkulib .sl-cancel-btn { border-radius: 999px; padding: 10px 20px; }
+
+  /* Empty state — generous padding */
+  #pageSkulib .sl-empty { padding: 80px 40px; }
+  #pageSkulib .sl-empty-t { font-size: 16px; }
+  #pageSkulib .sl-empty-s { font-size: 9.5px; letter-spacing: 0.04em; }
 </style>
 
 <div class="sl-wrap">
