@@ -4272,6 +4272,10 @@
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 12V3M2 12h10"/><rect x="4" y="7" width="2" height="5" fill="currentColor" opacity="0.7"/><rect x="7.5" y="5" width="2" height="7" fill="currentColor" opacity="0.85"/><rect x="11" y="9" width="2" height="3" fill="currentColor"/></svg>
           Brand P&amp;L Rollup
         </button>
+        <button class="nav-item" id="navDhealth" onclick="switchTool('dhealth')">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7h2l1.5-3 2 6 1.5-3h3"/></svg>
+          Data Health
+        </button>
         <button class="nav-item" id="navSalessku" onclick="switchTool('salessku')">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 10.5h10M2 7.5h7M2 4.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="11" cy="4.5" r="2" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M12.5 6l1 1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
           Sales by SKU
@@ -4454,6 +4458,10 @@
       <button class="sidebar-nav-item" onclick="switchTool('brandpnl');sbSetActive(this)">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="1.6" stroke-linecap="round"><path d="M3 21V5M3 21h18"/><rect x="6" y="13" width="3" height="8"/><rect x="11" y="9" width="3" height="12"/><rect x="16" y="15" width="3" height="6"/></svg>
         Brand P&amp;L
+      </button>
+      <button class="sidebar-nav-item" onclick="switchTool('dhealth');sbSetActive(this)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f472b6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>
+        Data Health
       </button>
       <button class="sidebar-nav-item" onclick="switchTool('calc');sbSetActive(this)">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="1.6" stroke-linecap="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/></svg>
@@ -5467,6 +5475,56 @@
       <table><thead><tr><th>ASIN</th><th>FNSKU</th><th>Title</th><th>Sellable</th><th>Unsellable</th><th>Days Supply</th><th>Inv Age 0-90</th><th>Inv Age 91-180</th><th>Inv Age 181-270</th><th>Inv Age 271-365</th><th>Inv Age 365+</th><th>Restock Qty</th><th>Alert</th></tr></thead>
       <tbody id="invTableBody"></tbody></table>
     </div>
+  </div>
+</div>
+</div>
+
+<!-- dhealth-v1: workspace-level data reconciliation / data health page (M2 item 5) -->
+<div id="pageDhealth" class="page">
+<div class="main">
+  <div style="margin-bottom:16px">
+    <button onclick="switchTool('home')" style="background:none;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:0.04em;padding:0;transition:color 0.15s;text-transform:uppercase" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 2L3 6l4.5 4"/></svg>
+      The Garden
+    </button>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:18px;flex-wrap:wrap">
+    <div>
+      <h2 style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;margin:0 0 4px">Data Health</h2>
+      <p id="dhSubtitle" style="color:var(--muted);font-size:11px;margin:0">Per-account data completeness across sales, inventory, reports, and product economics.</p>
+    </div>
+    <button onclick="initDhealth(true)" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:10px;padding:7px 12px;border-radius:8px;cursor:pointer">Refresh</button>
+  </div>
+
+  <!-- KPI strip -->
+  <div id="dhKpiStrip" style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:16px"></div>
+
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+    <div style="overflow-x:auto;max-height:64vh;overflow-y:auto">
+      <table id="dhTable" style="width:100%;border-collapse:collapse;font-family:'DM Mono',monospace;font-size:11px">
+        <thead style="position:sticky;top:0;background:var(--surface);z-index:2;box-shadow:0 1px 0 var(--border)">
+          <tr>
+            <th onclick="dhSort('brand')"   style="text-align:left;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Brand <span class="dh-sort-arrow" data-col="brand"></span></th>
+            <th onclick="dhSort('score')"   style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Score <span class="dh-sort-arrow" data-col="score"></span></th>
+            <th onclick="dhSort('lastSale')"style="text-align:left;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Last Sale <span class="dh-sort-arrow" data-col="lastSale"></span></th>
+            <th onclick="dhSort('lastReport')" style="text-align:left;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Last Report <span class="dh-sort-arrow" data-col="lastReport"></span></th>
+            <th onclick="dhSort('lastInv')"  style="text-align:left;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Last Inv <span class="dh-sort-arrow" data-col="lastInv"></span></th>
+            <th onclick="dhSort('productCount')" style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Products <span class="dh-sort-arrow" data-col="productCount"></span></th>
+            <th onclick="dhSort('missingCogs')"  style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Missing COGS <span class="dh-sort-arrow" data-col="missingCogs"></span></th>
+            <th onclick="dhSort('missingFba')"   style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Missing FBA <span class="dh-sort-arrow" data-col="missingFba"></span></th>
+            <th onclick="dhSort('missingRef')"   style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Missing Referral <span class="dh-sort-arrow" data-col="missingRef"></span></th>
+            <th onclick="dhSort('reportMonths')"  style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Reports / 6mo <span class="dh-sort-arrow" data-col="reportMonths"></span></th>
+            <th style="text-align:left;padding:10px 12px;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Top Issue</th>
+          </tr>
+        </thead>
+        <tbody id="dhTableBody">
+          <tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">Loading&hellip;</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div style="margin-top:10px;color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:0.04em">
+    Score starts at 100 and deducts points for stale data, missing economics, and missing report uploads. Click a brand to open its profile and fix gaps.
   </div>
 </div>
 </div>
@@ -9008,14 +9066,14 @@ function switchTool(tool) {
   currentTool = tool;
   if (tool === 'home') { setTimeout(initDashboard, 50); setTimeout(renderHomeAuditPreview, 80); }
   if (tool === 'inbox') { setTimeout(initInbox, 50); }
-  ['home','ppc','pnl','funnel','sku','skulib','inv','invcross','brandpnl','salessku','calc','weekly','settings','adminqueue','audit','ops','auditsched','inbox'].forEach(t => {
+  ['home','ppc','pnl','funnel','sku','skulib','inv','invcross','brandpnl','dhealth','salessku','calc','weekly','settings','adminqueue','audit','ops','auditsched','inbox'].forEach(t => {
     const cap  = t.charAt(0).toUpperCase() + t.slice(1);
     const page = document.getElementById('page' + cap);
     const nav  = document.getElementById('nav'  + cap);
     if (page) page.classList.toggle('active', t === tool);
     if (nav)  nav.classList.toggle('active',  t === tool);
   });
-  const names = { home: 'The Garden', ppc: 'Search Term Audit', pnl: 'P&L Analysis', funnel: 'Funnel Audit', sku: 'SKU Economics', inv: 'Inventory Health', invcross: 'Inventory Across Accounts', brandpnl: 'Brand P&L Rollup', salessku: 'Sales by SKU', calc: 'FBA Calculator', weekly: 'Weekly Report', settings: 'Settings', adminqueue: 'Admin Approvals', audit: 'Monthly Brand Audit', ops: 'Account OPS', inbox: 'Messages Inbox' };
+  const names = { home: 'The Garden', ppc: 'Search Term Audit', pnl: 'P&L Analysis', funnel: 'Funnel Audit', sku: 'SKU Economics', inv: 'Inventory Health', invcross: 'Inventory Across Accounts', brandpnl: 'Brand P&L Rollup', dhealth: 'Data Health', salessku: 'Sales by SKU', calc: 'FBA Calculator', weekly: 'Weekly Report', settings: 'Settings', adminqueue: 'Admin Approvals', audit: 'Monthly Brand Audit', ops: 'Account OPS', inbox: 'Messages Inbox' };
   const badges = { ppc: 'Sponsored Products', pnl: 'Transaction View', funnel: 'Brand Analytics', sku: 'Business Report', inv: 'FBA Inventory', calc: 'FBA Fees 2025', weekly: 'Performance Dashboard', adminqueue: 'Super Admin Queue', audit: 'Deep Dive Analysis' };
   const nameEl  = document.getElementById('headerToolName');
   const badgeEl = document.getElementById('headerBadge');
@@ -9035,6 +9093,7 @@ function switchTool(tool) {
   if (tool === 'inv')    initInv();
   if (tool === 'invcross') initInvcross();
   if (tool === 'brandpnl') initBrandpnl();
+  if (tool === 'dhealth')  initDhealth();
   if (tool === 'weekly') initWeekly();
   if (tool === 'settings') initSettingsAdminApprovals();
   if (tool === 'adminqueue') initSettingsAdminApprovals();
@@ -21939,6 +21998,299 @@ async function gardenSyncPartnerLibrary() {
     sub.textContent = 'Error: ' + (e.message || e) + '. Check Monday API key in Vercel env.';
     btn.textContent = 'Retry';
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// dhealth-v1: Workspace-level Data Health / reconciliation page.
+// Surfaces gaps in the data we already have so they can be fixed manually
+// (or via SP-API once available). Pure read; defensive on every query.
+// Per-account scoring penalizes:
+//   • stale sales (no daily_sales row in the last 14d)         −20
+//   • no sales data at all                                     −30
+//   • no inventory rows                                        −15
+//   • products missing COGS                                    −15 (scaled by share)
+//   • products missing FBA fee_manual                          −10 (scaled)
+//   • products missing referral_fee_pct                        −10 (scaled)
+//   • months in last 6 with no report upload                   −2 each
+// Sentinel: dhealth-v1.
+// ─────────────────────────────────────────────────────────────────────────
+const _dhState = { rows: [], sortKey: 'score', sortDir: 'asc', loading: false };
+
+function dhFmtDate(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch (e) { return '—'; }
+}
+function dhDaysAgo(iso) {
+  if (!iso) return Infinity;
+  const d = new Date(iso); if (isNaN(d.getTime())) return Infinity;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+
+async function initDhealth(force = false) {
+  const body = document.getElementById('dhTableBody');
+  const sub  = document.getElementById('dhSubtitle');
+  if (body) body.innerHTML = '<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">Loading…</td></tr>';
+
+  const sb = window.angoraSupabase;
+  if (!sb) { if (body) body.innerHTML = '<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">Not signed in.</td></tr>'; return; }
+  if (_dhState.loading) return;
+  _dhState.loading = true;
+
+  try {
+    // 1) Accounts (RLS-scoped)
+    const { data: accounts, error: accErr } = await sb.from('angora_accounts')
+      .select('id, name')
+      .eq('status', 'active')
+      .order('name');
+    if (accErr) throw accErr;
+    if (!accounts || accounts.length === 0) {
+      if (body) body.innerHTML = '<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">No accounts to display.</td></tr>';
+      _dhState.loading = false;
+      return;
+    }
+    const accountIds = accounts.map(a => a.id);
+
+    // 2) Products (one query covers all accounts)
+    let products = [];
+    try {
+      const { data, error } = await sb.from('angora_products')
+        .select('id, account_id, sku, cogs, fba_fee_manual, referral_fee_pct')
+        .in('account_id', accountIds);
+      if (error) throw error;
+      products = data || [];
+    } catch (e) { console.warn('[dhealth] products fallback:', e.message || e); products = []; }
+
+    const productsByAccount = {};
+    products.forEach(p => {
+      if (!productsByAccount[p.account_id]) productsByAccount[p.account_id] = [];
+      productsByAccount[p.account_id].push(p);
+    });
+    const productIds = products.map(p => p.id);
+
+    // 3) Last sale per product → fold to per-account max
+    const latestSaleByAccount = {};
+    if (productIds.length) {
+      try {
+        // Pull just the last 90d, since-date filter is enough to detect "stale"
+        const since = new Date(Date.now() - 90*86400000).toISOString().slice(0,10);
+        const chunkSize = 800;
+        for (let i = 0; i < productIds.length; i += chunkSize) {
+          const slice = productIds.slice(i, i + chunkSize);
+          const { data, error } = await sb.from('angora_daily_sales')
+            .select('product_id, sale_date')
+            .in('product_id', slice)
+            .gte('sale_date', since)
+            .order('sale_date', { ascending: false })
+            .limit(2000);
+          if (error) throw error;
+          (data || []).forEach(s => {
+            const p = products.find(pp => pp.id === s.product_id); if (!p) return;
+            const cur = latestSaleByAccount[p.account_id];
+            if (!cur || s.sale_date > cur) latestSaleByAccount[p.account_id] = s.sale_date;
+          });
+        }
+      } catch (e) { console.warn('[dhealth] sales fallback:', e.message || e); }
+    }
+
+    // 4) Inventory rows → last update per account
+    const latestInvByAccount = {};
+    let invRows = [];
+    if (productIds.length) {
+      try {
+        const chunkSize = 800;
+        for (let i = 0; i < productIds.length; i += chunkSize) {
+          const slice = productIds.slice(i, i + chunkSize);
+          const { data, error } = await sb.from('angora_inventory')
+            .select('product_id, updated_at')
+            .in('product_id', slice);
+          if (error) throw error;
+          if (data && data.length) invRows.push(...data);
+        }
+      } catch (e) { console.warn('[dhealth] inventory fallback:', e.message || e); }
+    }
+    invRows.forEach(r => {
+      const p = products.find(pp => pp.id === r.product_id); if (!p) return;
+      const cur = latestInvByAccount[p.account_id];
+      if (!cur || (r.updated_at && r.updated_at > cur)) latestInvByAccount[p.account_id] = r.updated_at;
+    });
+
+    // 5) Report uploads — last upload per account + count of distinct months in the last 6
+    const last6 = new Set();
+    {
+      const today = new Date();
+      for (let i = 0; i < 6; i++) {
+        const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        last6.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+      }
+    }
+    const lastReportByAccount = {};
+    const monthsByAccount = {};
+    try {
+      const { data, error } = await sb.from('angora_report_uploads')
+        .select('account_id, month, created_at')
+        .in('account_id', accountIds);
+      if (error) throw error;
+      (data || []).forEach(r => {
+        if (!monthsByAccount[r.account_id]) monthsByAccount[r.account_id] = new Set();
+        if (last6.has(r.month)) monthsByAccount[r.account_id].add(r.month);
+        const cur = lastReportByAccount[r.account_id];
+        if (!cur || (r.created_at && r.created_at > cur)) lastReportByAccount[r.account_id] = r.created_at;
+      });
+    } catch (e) { console.warn('[dhealth] report uploads fallback:', e.message || e); }
+
+    // 6) Compute per-account row
+    const rows = accounts.map(a => {
+      const ps = productsByAccount[a.id] || [];
+      const productCount = ps.length;
+      const missingCogs = ps.filter(p => !p.cogs || Number(p.cogs) <= 0).length;
+      const missingFba  = ps.filter(p => p.fba_fee_manual == null || Number(p.fba_fee_manual) <= 0).length;
+      const missingRef  = ps.filter(p => p.referral_fee_pct == null || Number(p.referral_fee_pct) <= 0).length;
+      const lastSale    = latestSaleByAccount[a.id] || null;
+      const lastReport  = lastReportByAccount[a.id] || null;
+      const lastInv     = latestInvByAccount[a.id]  || null;
+      const reportMonths = monthsByAccount[a.id] ? monthsByAccount[a.id].size : 0;
+
+      let score = 100;
+      const issues = [];
+      if (productCount === 0) {
+        score -= 50;
+        issues.push('No products seeded');
+      }
+      if (!lastSale) {
+        score -= 30;
+        issues.push('No sales data');
+      } else if (dhDaysAgo(lastSale) > 14) {
+        score -= 20;
+        issues.push(`Sales stale (${dhDaysAgo(lastSale)}d ago)`);
+      }
+      if (!lastInv) {
+        score -= 15;
+        issues.push('No inventory rows');
+      }
+      if (productCount > 0) {
+        const cogsRatio = missingCogs / productCount;
+        const fbaRatio  = missingFba  / productCount;
+        const refRatio  = missingRef  / productCount;
+        if (cogsRatio > 0) { score -= Math.round(15 * cogsRatio); issues.push(`${missingCogs} SKUs missing COGS`); }
+        if (fbaRatio  > 0) { score -= Math.round(10 * fbaRatio);  issues.push(`${missingFba} SKUs missing FBA fee`); }
+        if (refRatio  > 0) { score -= Math.round(10 * refRatio);  issues.push(`${missingRef} SKUs missing referral %`); }
+      }
+      const missingMonths = 6 - reportMonths;
+      if (missingMonths > 0) {
+        score -= 2 * missingMonths;
+        issues.push(`${missingMonths}/6 report months missing`);
+      }
+      score = Math.max(0, Math.min(100, score));
+
+      return {
+        accountId: a.id,
+        brand: a.name || '—',
+        score,
+        lastSale, lastReport, lastInv,
+        productCount, missingCogs, missingFba, missingRef,
+        reportMonths,
+        topIssue: issues[0] || 'All good'
+      };
+    });
+
+    _dhState.rows = rows;
+
+    if (sub) sub.textContent = `${accounts.length} brand${accounts.length===1?'':'s'} scored · ${products.length} product${products.length===1?'':'s'} examined`;
+    dhApplyFilters();
+  } catch (e) {
+    console.error('[dhealth] failed:', e);
+    if (body) body.innerHTML = `<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">Could not load: ${(e && e.message) ? e.message : e}</td></tr>`;
+    if (sub)  sub.textContent = 'Error loading data health.';
+  } finally {
+    _dhState.loading = false;
+  }
+}
+
+function dhSort(key) {
+  if (_dhState.sortKey === key) _dhState.sortDir = _dhState.sortDir === 'asc' ? 'desc' : 'asc';
+  else { _dhState.sortKey = key; _dhState.sortDir = (key === 'brand' || key === 'lastSale' || key === 'lastReport' || key === 'lastInv') ? 'asc' : 'desc'; }
+  dhApplyFilters();
+}
+
+function dhApplyFilters() {
+  const body = document.getElementById('dhTableBody');
+  if (!body) return;
+  const rows = [..._dhState.rows];
+  const key = _dhState.sortKey;
+  const dir = _dhState.sortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    const av = a[key]; const bv = b[key];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === 'string' && typeof bv === 'string') return av.localeCompare(bv) * dir;
+    return ((av || 0) - (bv || 0)) * dir;
+  });
+
+  document.querySelectorAll('.dh-sort-arrow').forEach(el => {
+    if (el.dataset.col === _dhState.sortKey) {
+      el.textContent = _dhState.sortDir === 'asc' ? '↑' : '↓';
+      el.style.color = 'var(--accent)';
+    } else el.textContent = '';
+  });
+
+  // KPIs
+  const total = rows.length;
+  const avgScore = total > 0 ? Math.round(rows.reduce((s,r)=>s+r.score,0)/total) : 0;
+  const critical = rows.filter(r => r.score < 50).length;
+  const noSales  = rows.filter(r => !r.lastSale).length;
+  const noInv    = rows.filter(r => !r.lastInv).length;
+  dhRenderKpis({ total, avgScore, critical, noSales, noInv });
+
+  if (rows.length === 0) {
+    body.innerHTML = '<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">No accounts.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(r => {
+    const scoreColor = r.score >= 80 ? '#34d399' : (r.score >= 50 ? '#facc15' : '#ff4d6d');
+    const safeBrand = (r.brand || '').replace(/'/g,"\\'");
+    const drillFn = `if (typeof acctProfileOpen === 'function') acctProfileOpen('${safeBrand}','')`;
+    const stale = (iso) => {
+      if (!iso) return '<span style="color:#ff4d6d">—</span>';
+      const d = dhDaysAgo(iso);
+      const c = d > 30 ? '#ff4d6d' : (d > 14 ? '#f59e0b' : 'var(--muted)');
+      return `<span style="color:${c}">${dhFmtDate(iso)}</span>`;
+    };
+    return `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:8px 12px"><a href="#" onclick="${drillFn};return false" style="color:var(--text);text-decoration:none;border-bottom:1px dashed var(--border)">${r.brand}</a></td>
+      <td style="padding:8px 12px;text-align:right;color:${scoreColor};font-weight:700">${r.score}</td>
+      <td style="padding:8px 12px">${stale(r.lastSale)}</td>
+      <td style="padding:8px 12px">${stale(r.lastReport)}</td>
+      <td style="padding:8px 12px">${stale(r.lastInv)}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--muted)">${r.productCount}</td>
+      <td style="padding:8px 12px;text-align:right;color:${r.missingCogs>0?'#f59e0b':'var(--muted)'}">${r.missingCogs}</td>
+      <td style="padding:8px 12px;text-align:right;color:${r.missingFba>0?'#f59e0b':'var(--muted)'}">${r.missingFba}</td>
+      <td style="padding:8px 12px;text-align:right;color:${r.missingRef>0?'#f59e0b':'var(--muted)'}">${r.missingRef}</td>
+      <td style="padding:8px 12px;text-align:right;color:${r.reportMonths<3?'#f59e0b':'var(--muted)'}">${r.reportMonths}/6</td>
+      <td style="padding:8px 12px;color:var(--muted);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.topIssue||'').replace(/"/g,'&quot;')}">${r.topIssue}</td>
+    </tr>`;
+  }).join('');
+}
+
+function dhRenderKpis(k) {
+  const wrap = document.getElementById('dhKpiStrip');
+  if (!wrap) return;
+  const card = (label, val, color) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+    <div style="font-family:'DM Mono',monospace;font-size:8px;letter-spacing:0.1em;color:var(--muted);text-transform:uppercase;margin-bottom:6px">${label}</div>
+    <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:${color||'var(--text)'}">${val}</div>
+  </div>`;
+  const avgColor = k.avgScore >= 80 ? '#34d399' : (k.avgScore >= 50 ? '#facc15' : '#ff4d6d');
+  wrap.innerHTML = [
+    card('Brands', k.total.toLocaleString()),
+    card('Avg score', k.avgScore.toString(), avgColor),
+    card('Critical (<50)', k.critical.toLocaleString(), k.critical>0?'#ff4d6d':'var(--muted)'),
+    card('No sales data', k.noSales.toLocaleString(), k.noSales>0?'#f59e0b':'var(--muted)'),
+    card('No inventory', k.noInv.toLocaleString(), k.noInv>0?'#f59e0b':'var(--muted)')
+  ].join('');
 }
 
 // ─────────────────────────────────────────────────────────────────────────
