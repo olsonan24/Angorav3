@@ -4268,6 +4268,10 @@
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="1" y="2" width="5" height="4" rx="0.6"/><rect x="8" y="2" width="5" height="4" rx="0.6"/><rect x="1" y="8" width="5" height="4" rx="0.6"/><rect x="8" y="8" width="5" height="4" rx="0.6"/></svg>
           Inventory Across Accounts
         </button>
+        <button class="nav-item" id="navBrandpnl" onclick="switchTool('brandpnl')">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 12V3M2 12h10"/><rect x="4" y="7" width="2" height="5" fill="currentColor" opacity="0.7"/><rect x="7.5" y="5" width="2" height="7" fill="currentColor" opacity="0.85"/><rect x="11" y="9" width="2" height="3" fill="currentColor"/></svg>
+          Brand P&amp;L Rollup
+        </button>
         <button class="nav-item" id="navSalessku" onclick="switchTool('salessku')">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 10.5h10M2 7.5h7M2 4.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="11" cy="4.5" r="2" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M12.5 6l1 1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
           Sales by SKU
@@ -4446,6 +4450,10 @@
       <button class="sidebar-nav-item" onclick="switchTool('invcross');sbSetActive(this)">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
         Across Accounts
+      </button>
+      <button class="sidebar-nav-item" onclick="switchTool('brandpnl');sbSetActive(this)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="1.6" stroke-linecap="round"><path d="M3 21V5M3 21h18"/><rect x="6" y="13" width="3" height="8"/><rect x="11" y="9" width="3" height="12"/><rect x="16" y="15" width="3" height="6"/></svg>
+        Brand P&amp;L
       </button>
       <button class="sidebar-nav-item" onclick="switchTool('calc');sbSetActive(this)">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="1.6" stroke-linecap="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/></svg>
@@ -5453,6 +5461,66 @@
       <table><thead><tr><th>ASIN</th><th>FNSKU</th><th>Title</th><th>Sellable</th><th>Unsellable</th><th>Days Supply</th><th>Inv Age 0-90</th><th>Inv Age 91-180</th><th>Inv Age 181-270</th><th>Inv Age 271-365</th><th>Inv Age 365+</th><th>Restock Qty</th><th>Alert</th></tr></thead>
       <tbody id="invTableBody"></tbody></table>
     </div>
+  </div>
+</div>
+</div>
+
+<!-- brandpnl-v1: brand-level P&L rollup view across all accessible accounts (M2 item 3c) -->
+<div id="pageBrandpnl" class="page">
+<div class="main">
+  <div style="margin-bottom:16px">
+    <button onclick="switchTool('home')" style="background:none;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:0.04em;padding:0;transition:color 0.15s;text-transform:uppercase" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 2L3 6l4.5 4"/></svg>
+      The Garden
+    </button>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:18px;flex-wrap:wrap">
+    <div>
+      <h2 style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;margin:0 0 4px">Brand P&amp;L Rollup</h2>
+      <p id="bpSubtitle" style="color:var(--muted);font-size:11px;margin:0">Aggregated profitability per brand, across all accounts you can access.</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="bpPeriod" onchange="initBrandpnl(true)" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'DM Mono',monospace;font-size:11px;padding:7px 10px;border-radius:8px;outline:none">
+        <option value="30">Last 30 days</option>
+        <option value="90" selected>Last 90 days</option>
+        <option value="month">This month</option>
+        <option value="lastmonth">Last month</option>
+        <option value="ytd">Year-to-date</option>
+        <option value="all">All time</option>
+      </select>
+      <button onclick="initBrandpnl(true)" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:10px;padding:7px 12px;border-radius:8px;cursor:pointer">Refresh</button>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div id="bpKpiStrip" style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:16px"></div>
+
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+    <div style="overflow-x:auto;max-height:62vh;overflow-y:auto">
+      <table id="bpTable" style="width:100%;border-collapse:collapse;font-family:'DM Mono',monospace;font-size:11px">
+        <thead style="position:sticky;top:0;background:var(--surface);z-index:2;box-shadow:0 1px 0 var(--border)">
+          <tr>
+            <th onclick="bpSort('brand')"  style="text-align:left;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Brand <span class="bp-sort-arrow" data-col="brand"></span></th>
+            <th onclick="bpSort('revenue')"style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Revenue <span class="bp-sort-arrow" data-col="revenue"></span></th>
+            <th onclick="bpSort('units')"  style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Units <span class="bp-sort-arrow" data-col="units"></span></th>
+            <th onclick="bpSort('cogs')"   style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">COGS <span class="bp-sort-arrow" data-col="cogs"></span></th>
+            <th onclick="bpSort('fba')"    style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">FBA <span class="bp-sort-arrow" data-col="fba"></span></th>
+            <th onclick="bpSort('referral')" style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Referral <span class="bp-sort-arrow" data-col="referral"></span></th>
+            <th onclick="bpSort('angora5')" style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Angora 5% <span class="bp-sort-arrow" data-col="angora5"></span></th>
+            <th onclick="bpSort('storage')" style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Storage <span class="bp-sort-arrow" data-col="storage"></span></th>
+            <th onclick="bpSort('ads')"     style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Ads <span class="bp-sort-arrow" data-col="ads"></span></th>
+            <th onclick="bpSort('netProfit')" style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Net Profit <span class="bp-sort-arrow" data-col="netProfit"></span></th>
+            <th onclick="bpSort('margin')"  style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Margin <span class="bp-sort-arrow" data-col="margin"></span></th>
+          </tr>
+        </thead>
+        <tbody id="bpTableBody">
+          <tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">Loading&hellip;</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div style="margin-top:10px;color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:0.04em">
+    Storage column = Storage&nbsp;+&nbsp;Placement&nbsp;+&nbsp;Aged-Inventory fees from monthly Amazon report uploads. FBA per unit pulls from <code>fba_fee_manual</code> on each product. Click any brand to open its Account profile.
   </div>
 </div>
 </div>
@@ -8934,14 +9002,14 @@ function switchTool(tool) {
   currentTool = tool;
   if (tool === 'home') { setTimeout(initDashboard, 50); setTimeout(renderHomeAuditPreview, 80); }
   if (tool === 'inbox') { setTimeout(initInbox, 50); }
-  ['home','ppc','pnl','funnel','sku','skulib','inv','invcross','salessku','calc','weekly','settings','adminqueue','audit','ops','auditsched','inbox'].forEach(t => {
+  ['home','ppc','pnl','funnel','sku','skulib','inv','invcross','brandpnl','salessku','calc','weekly','settings','adminqueue','audit','ops','auditsched','inbox'].forEach(t => {
     const cap  = t.charAt(0).toUpperCase() + t.slice(1);
     const page = document.getElementById('page' + cap);
     const nav  = document.getElementById('nav'  + cap);
     if (page) page.classList.toggle('active', t === tool);
     if (nav)  nav.classList.toggle('active',  t === tool);
   });
-  const names = { home: 'The Garden', ppc: 'Search Term Audit', pnl: 'P&L Analysis', funnel: 'Funnel Audit', sku: 'SKU Economics', inv: 'Inventory Health', invcross: 'Inventory Across Accounts', salessku: 'Sales by SKU', calc: 'FBA Calculator', weekly: 'Weekly Report', settings: 'Settings', adminqueue: 'Admin Approvals', audit: 'Monthly Brand Audit', ops: 'Account OPS', inbox: 'Messages Inbox' };
+  const names = { home: 'The Garden', ppc: 'Search Term Audit', pnl: 'P&L Analysis', funnel: 'Funnel Audit', sku: 'SKU Economics', inv: 'Inventory Health', invcross: 'Inventory Across Accounts', brandpnl: 'Brand P&L Rollup', salessku: 'Sales by SKU', calc: 'FBA Calculator', weekly: 'Weekly Report', settings: 'Settings', adminqueue: 'Admin Approvals', audit: 'Monthly Brand Audit', ops: 'Account OPS', inbox: 'Messages Inbox' };
   const badges = { ppc: 'Sponsored Products', pnl: 'Transaction View', funnel: 'Brand Analytics', sku: 'Business Report', inv: 'FBA Inventory', calc: 'FBA Fees 2025', weekly: 'Performance Dashboard', adminqueue: 'Super Admin Queue', audit: 'Deep Dive Analysis' };
   const nameEl  = document.getElementById('headerToolName');
   const badgeEl = document.getElementById('headerBadge');
@@ -8960,6 +9028,7 @@ function switchTool(tool) {
   if (tool === 'skulib') initSkulib();
   if (tool === 'inv')    initInv();
   if (tool === 'invcross') initInvcross();
+  if (tool === 'brandpnl') initBrandpnl();
   if (tool === 'weekly') initWeekly();
   if (tool === 'settings') initSettingsAdminApprovals();
   if (tool === 'adminqueue') initSettingsAdminApprovals();
@@ -21864,6 +21933,291 @@ async function gardenSyncPartnerLibrary() {
     sub.textContent = 'Error: ' + (e.message || e) + '. Check Monday API key in Vercel env.';
     btn.textContent = 'Retry';
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// brandpnl-v1: Brand-level P&L rollup across all accessible accounts.
+// Pure read; one row per brand/account. Period selector controls the window.
+// Sources: angora_accounts (RLS) → angora_products → angora_daily_sales (window)
+// → angora_report_uploads (Storage / Placement / Aged fees per month in window).
+// Defensive: any failed sub-query becomes empty data; the page still renders.
+// ─────────────────────────────────────────────────────────────────────────
+const _bpState = { rows: [], sortKey: 'netProfit', sortDir: 'desc', loading: false };
+
+function bpFmtMoney(v, dec=0) {
+  if (!isFinite(v)) return '$0';
+  const sign = v < 0 ? '-' : '';
+  const abs = Math.abs(v);
+  return sign + '$' + abs.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+function bpFmtPct(v) { if (!isFinite(v)) return '–'; return (v*100).toFixed(1) + '%'; }
+
+// Returns [startISO, endISO) date range for the chosen period.
+function bpResolvePeriod(period) {
+  const today = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+  if (period === 'month') {
+    const s = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { start: iso(s), end: iso(tomorrow), label: today.toLocaleString('en-US',{month:'long',year:'numeric'}) };
+  }
+  if (period === 'lastmonth') {
+    const s = new Date(today.getFullYear(), today.getMonth()-1, 1);
+    const e = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { start: iso(s), end: iso(e), label: s.toLocaleString('en-US',{month:'long',year:'numeric'}) };
+  }
+  if (period === 'ytd') {
+    const s = new Date(today.getFullYear(), 0, 1);
+    return { start: iso(s), end: iso(tomorrow), label: 'YTD ' + today.getFullYear() };
+  }
+  if (period === 'all') {
+    return { start: '2020-01-01', end: iso(tomorrow), label: 'All time' };
+  }
+  // numeric-day window
+  const days = parseInt(period, 10) || 90;
+  const s = new Date(today); s.setDate(today.getDate() - days);
+  return { start: iso(s), end: iso(tomorrow), label: `Last ${days} days` };
+}
+
+// Convert a YYYY-MM-DD date into a YYYY-MM month key for joining report uploads.
+function bpMonthKey(iso) { return iso.slice(0,7); }
+function bpMonthsInRange(startIso, endIso) {
+  // Inclusive list of YYYY-MM strings between startIso (inclusive) and endIso (exclusive)
+  const out = new Set();
+  const s = new Date(startIso + 'T00:00:00');
+  const e = new Date(endIso + 'T00:00:00');
+  // iterate by month start
+  let cur = new Date(s.getFullYear(), s.getMonth(), 1);
+  while (cur < e) {
+    out.add(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`);
+    cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+  }
+  return out;
+}
+
+async function initBrandpnl(force = false) {
+  const body = document.getElementById('bpTableBody');
+  const sub  = document.getElementById('bpSubtitle');
+  if (body) body.innerHTML = '<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">Loading…</td></tr>';
+
+  const sb = window.angoraSupabase;
+  if (!sb) {
+    if (body) body.innerHTML = '<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">Not signed in.</td></tr>';
+    return;
+  }
+  if (_bpState.loading) return;
+  _bpState.loading = true;
+
+  const periodVal = document.getElementById('bpPeriod')?.value || '90';
+  const range = bpResolvePeriod(periodVal);
+  const monthsInWindow = bpMonthsInRange(range.start, range.end);
+
+  try {
+    // 1) Accounts (RLS-scoped)
+    const { data: accounts, error: accErr } = await sb.from('angora_accounts')
+      .select('id, name')
+      .eq('status', 'active')
+      .order('name');
+    if (accErr) throw accErr;
+    if (!accounts || accounts.length === 0) {
+      if (body) body.innerHTML = '<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">No accounts to display.</td></tr>';
+      if (sub)  sub.textContent = '0 accounts.';
+      _bpState.loading = false;
+      return;
+    }
+    const accountById = {};
+    accounts.forEach(a => { accountById[a.id] = { id: a.id, name: a.name, products: [] }; });
+    const accountIds = accounts.map(a => a.id);
+
+    // 2) Products
+    const { data: products, error: prodErr } = await sb.from('angora_products')
+      .select('id, account_id, sku, cogs, fba_fee_manual, referral_fee_pct, price')
+      .in('account_id', accountIds);
+    if (prodErr) throw prodErr;
+    const productById = {};
+    (products || []).forEach(p => {
+      productById[p.id] = p;
+      if (accountById[p.account_id]) accountById[p.account_id].products.push(p);
+    });
+    const productIds = (products || []).map(p => p.id);
+
+    // 3) Daily sales (window)
+    let salesRows = [];
+    if (productIds.length > 0) {
+      try {
+        // chunk if huge — Supabase .in() is fine up to a few thousand IDs
+        const chunkSize = 800;
+        for (let i = 0; i < productIds.length; i += chunkSize) {
+          const slice = productIds.slice(i, i + chunkSize);
+          const { data, error } = await sb.from('angora_daily_sales')
+            .select('product_id, sale_date, units_sold, revenue, ad_spend, fba_fees')
+            .in('product_id', slice)
+            .gte('sale_date', range.start)
+            .lt('sale_date', range.end);
+          if (error) throw error;
+          if (data && data.length) salesRows.push(...data);
+        }
+      } catch (e) {
+        console.warn('[brandpnl] sales load fallback:', e.message || e);
+        salesRows = [];
+      }
+    }
+
+    // 4) Report uploads (storage / placement / aged fees) intersecting the window
+    let reportRows = [];
+    try {
+      const { data, error } = await sb.from('angora_report_uploads')
+        .select('account_id, report_type, month, totals')
+        .in('account_id', accountIds);
+      if (error) throw error;
+      reportRows = (data || []).filter(r => monthsInWindow.has(r.month));
+    } catch (e) {
+      console.warn('[brandpnl] report uploads fallback:', e.message || e);
+      reportRows = [];
+    }
+
+    // 5) Aggregate per account
+    const agg = {};
+    accounts.forEach(a => {
+      agg[a.id] = {
+        accountId: a.id,
+        brand: a.name || '—',
+        revenue: 0, units: 0, cogs: 0, fba: 0, referral: 0, angora5: 0,
+        storage: 0, ads: 0, netProfit: 0, margin: 0
+      };
+    });
+    salesRows.forEach(s => {
+      const p = productById[s.product_id]; if (!p) return;
+      const a = agg[p.account_id]; if (!a) return;
+      const units = Number(s.units_sold || 0);
+      const rev   = parseFloat(s.revenue || 0);
+      const ads   = parseFloat(s.ad_spend || 0);
+      a.revenue  += rev;
+      a.units    += units;
+      a.ads      += ads;
+      a.cogs     += units * Number(p.cogs || 0);
+      // Prefer real fba_fees from sales row when present, else units × manual fee
+      const fbaFromSales = parseFloat(s.fba_fees || 0);
+      if (fbaFromSales > 0) a.fba += fbaFromSales;
+      else                  a.fba += units * Number(p.fba_fee_manual || 0);
+      a.referral += rev * (Number(p.referral_fee_pct || 0) / 100);
+    });
+    reportRows.forEach(r => {
+      const a = agg[r.account_id]; if (!a) return;
+      const t = r.totals || {};
+      a.storage += Number(t.placement_fee || 0) + Number(t.storage_fee || 0) + Number(t.aged_fee || 0);
+    });
+    Object.values(agg).forEach(a => {
+      a.angora5   = a.revenue * 0.05;
+      a.netProfit = a.revenue - (a.cogs + a.fba + a.referral + a.angora5 + a.storage + a.ads);
+      a.margin    = a.revenue > 0 ? (a.netProfit / a.revenue) : 0;
+    });
+
+    _bpState.rows = Object.values(agg);
+
+    if (sub) sub.textContent = `${accounts.length} brand${accounts.length===1?'':'s'} · ${range.label} · ${range.start} → ${range.end}`;
+    bpApplyFilters();
+  } catch (e) {
+    console.error('[brandpnl] failed:', e);
+    if (body) body.innerHTML = `<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">Could not load: ${(e && e.message) ? e.message : e}</td></tr>`;
+    if (sub)  sub.textContent = 'Error loading rollup.';
+  } finally {
+    _bpState.loading = false;
+  }
+}
+
+function bpSort(key) {
+  if (_bpState.sortKey === key) {
+    _bpState.sortDir = _bpState.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _bpState.sortKey = key;
+    _bpState.sortDir = (key === 'brand') ? 'asc' : 'desc';
+  }
+  bpApplyFilters();
+}
+
+function bpApplyFilters() {
+  const body = document.getElementById('bpTableBody');
+  if (!body) return;
+  const rows = [..._bpState.rows];
+  const key = _bpState.sortKey;
+  const dir = _bpState.sortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    const av = a[key]; const bv = b[key];
+    if (typeof av === 'string') return av.localeCompare(bv) * dir;
+    return ((av || 0) - (bv || 0)) * dir;
+  });
+
+  document.querySelectorAll('.bp-sort-arrow').forEach(el => {
+    if (el.dataset.col === _bpState.sortKey) {
+      el.textContent = _bpState.sortDir === 'asc' ? '↑' : '↓';
+      el.style.color = 'var(--accent)';
+    } else {
+      el.textContent = '';
+    }
+  });
+
+  // KPI strip
+  const tot = rows.reduce((s, r) => ({
+    revenue: s.revenue + r.revenue,
+    cogs:    s.cogs    + r.cogs,
+    fba:     s.fba     + r.fba,
+    referral:s.referral+ r.referral,
+    angora5: s.angora5 + r.angora5,
+    storage: s.storage + r.storage,
+    ads:     s.ads     + r.ads,
+    netProfit: s.netProfit + r.netProfit
+  }), { revenue:0,cogs:0,fba:0,referral:0,angora5:0,storage:0,ads:0,netProfit:0 });
+  const totalMargin = tot.revenue > 0 ? tot.netProfit / tot.revenue : 0;
+  bpRenderKpis({
+    brands: rows.length,
+    revenue: tot.revenue,
+    netProfit: tot.netProfit,
+    margin: totalMargin,
+    ads: tot.ads
+  });
+
+  if (rows.length === 0) {
+    body.innerHTML = '<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">No brands.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(r => {
+    const profitColor = r.netProfit >= 0 ? '#34d399' : '#ff8b8b';
+    const marginColor = r.margin >= 0.10 ? '#34d399' : (r.margin >= 0 ? '#facc15' : '#ff8b8b');
+    const noData = r.revenue === 0 && r.cogs === 0;
+    const safeBrand = (r.brand || '').replace(/'/g,"\\'");
+    const drillFn = `if (typeof acctProfileOpen === 'function') acctProfileOpen('${safeBrand}','')`;
+    return `<tr style="border-top:1px solid var(--border);${noData?'opacity:0.55':''}">
+      <td style="padding:8px 12px;color:var(--text)"><a href="#" onclick="${drillFn};return false" style="color:var(--text);text-decoration:none;border-bottom:1px dashed var(--border)">${r.brand}</a></td>
+      <td style="padding:8px 12px;text-align:right;color:var(--text)">${bpFmtMoney(r.revenue)}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--muted)">${r.units.toLocaleString()}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--muted)">${bpFmtMoney(r.cogs)}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--muted)">${bpFmtMoney(r.fba)}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--muted)">${bpFmtMoney(r.referral)}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--muted)">${bpFmtMoney(r.angora5)}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--muted)">${bpFmtMoney(r.storage)}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--muted)">${bpFmtMoney(r.ads)}</td>
+      <td style="padding:8px 12px;text-align:right;color:${profitColor};font-weight:700">${bpFmtMoney(r.netProfit)}</td>
+      <td style="padding:8px 12px;text-align:right;color:${marginColor};font-weight:700">${bpFmtPct(r.margin)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function bpRenderKpis(k) {
+  const wrap = document.getElementById('bpKpiStrip');
+  if (!wrap) return;
+  const card = (label, val, color) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+    <div style="font-family:'DM Mono',monospace;font-size:8px;letter-spacing:0.1em;color:var(--muted);text-transform:uppercase;margin-bottom:6px">${label}</div>
+    <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:${color||'var(--text)'}">${val}</div>
+  </div>`;
+  wrap.innerHTML = [
+    card('Brands', k.brands.toLocaleString()),
+    card('Total revenue', bpFmtMoney(k.revenue)),
+    card('Net profit', bpFmtMoney(k.netProfit), k.netProfit>=0?'#34d399':'#ff8b8b'),
+    card('Blended margin', bpFmtPct(k.margin), k.margin>=0.10?'#34d399':(k.margin>=0?'#facc15':'#ff8b8b')),
+    card('Ad spend', bpFmtMoney(k.ads))
+  ].join('');
 }
 
 // ─────────────────────────────────────────────────────────────────────────
