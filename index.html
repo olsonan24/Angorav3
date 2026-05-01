@@ -4527,6 +4527,12 @@
     <div style="flex:1;min-width:0">
       <div class="dash-hero-title">Angora <span>Operations</span></div>
       <div class="dash-hero-sub">Your full Amazon optimization toolkit in one place. Pick a tool or run the Account OPS guided workflow.</div>
+      <!-- rolepill-v1: surfaces the current user's effective access tier (super_admin / internal / partner). Hidden until role resolves. -->
+      <div id="rolePill" data-role="" style="display:none;margin-top:12px;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;padding:5px 10px;border-radius:14px;border:1px solid var(--border);background:rgba(255,255,255,0.03);width:fit-content">
+        <span id="rolePillDot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:7px;vertical-align:1px"></span>
+        <span id="rolePillLabel" style="color:var(--muted)">Access</span>
+        <span id="rolePillScope" style="color:var(--muted);opacity:0.7;margin-left:6px"></span>
+      </div>
     </div>
     <!-- Audit Schedule Mini Preview -->
     <div style="flex-shrink:0;width:380px">
@@ -21934,6 +21940,126 @@ async function gardenSyncPartnerLibrary() {
     btn.textContent = 'Retry';
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// rolepill-v1: Effective-role abstraction (super_admin / internal / partner / guest).
+// Reads existing tables only — no SQL migration required. Layered defensively:
+//  • super_admin = bootstrap email OR (profile.role === 'super_admin' && active)
+//  • internal    = profile.role === 'admin' && active
+//  • partner     = authenticated, not internal/super_admin, has angora_partner_access rows
+//  • guest       = not authenticated
+// Cached on window for the session. Pulled lazily on Home + exposed as helpers.
+// ─────────────────────────────────────────────────────────────────────────
+window._angoraRoleCache = null;
+
+window.angoraResolveRole = async function angoraResolveRole(opts = {}) {
+  if (window._angoraRoleCache && !opts.force) return window._angoraRoleCache;
+  const out = { role: 'guest', email: null, scopeCount: 0, displayLabel: 'Guest', color: '#888', resolvedAt: Date.now() };
+  try {
+    const sb = window.angoraSupabase;
+    if (!sb || !sb.auth) { window._angoraRoleCache = out; return out; }
+    const { data: { user } = {} } = await sb.auth.getUser();
+    if (!user) { window._angoraRoleCache = out; return out; }
+    out.email = (user.email || '').toLowerCase();
+
+    // Bootstrap super-admin shortcut (matches existing settings logic at line ~9947)
+    if (typeof BOOTSTRAP_SUPER_ADMIN_EMAIL !== 'undefined' && out.email === BOOTSTRAP_SUPER_ADMIN_EMAIL) {
+      out.role = 'super_admin'; out.displayLabel = 'Super Admin'; out.color = '#a78bfa';
+    } else {
+      // Try the profiles table — defensive: if RLS denies it, fall through to partner/guest
+      try {
+        const { data: profile } = await sb.from('angora_user_profiles')
+          .select('role, approval_status')
+          .eq('id', user.id)
+          .maybeSingle();
+        const role = String(profile?.role || '').trim().toLowerCase();
+        const status = String(profile?.approval_status || '').trim().toLowerCase();
+        if (role === 'super_admin' && status === 'active') {
+          out.role = 'super_admin'; out.displayLabel = 'Super Admin'; out.color = '#a78bfa';
+        } else if (role === 'admin' && status === 'active') {
+          out.role = 'internal'; out.displayLabel = 'Internal'; out.color = '#6b8fff';
+        }
+      } catch (e) { /* table might not be readable for partners; that's expected */ }
+    }
+
+    // Partners: count accessible accounts via angora_partner_access (best-effort).
+    if (out.role === 'guest') {
+      try {
+        const { data: paRows } = await sb.from('angora_partner_access')
+          .select('account_id')
+          .eq('user_id', user.id);
+        if (paRows && paRows.length > 0) {
+          out.role = 'partner';
+          out.scopeCount = paRows.length;
+          out.displayLabel = 'Partner';
+          out.color = '#34d399';
+        }
+      } catch (e) {
+        // angora_partner_access might not be queryable from this client; fall back
+        // to a safer signal: count visible accounts via RLS — if any are visible
+        // and the user isn't admin, they're effectively a partner.
+        try {
+          const { data: accts } = await sb.from('angora_accounts').select('id').limit(50);
+          if (accts && accts.length > 0) {
+            out.role = 'partner';
+            out.scopeCount = accts.length;
+            out.displayLabel = 'Partner';
+            out.color = '#34d399';
+          }
+        } catch (e2) {}
+      }
+    } else if (out.role === 'internal' || out.role === 'super_admin') {
+      // Count total accessible accounts for the scope label
+      try {
+        const { data: accts } = await sb.from('angora_accounts').select('id', { count: 'exact' }).limit(1);
+        // Supabase v2 returns count via head response, which we don't easily get here — skip
+      } catch (e) {}
+    }
+
+    window._angoraRoleCache = out;
+    return out;
+  } catch (e) {
+    console.warn('[angoraResolveRole] failed:', e.message || e);
+    window._angoraRoleCache = out;
+    return out;
+  }
+};
+
+window.angoraIsSuperAdmin = async () => (await window.angoraResolveRole()).role === 'super_admin';
+window.angoraIsInternal   = async () => { const r = (await window.angoraResolveRole()).role; return r === 'super_admin' || r === 'internal'; };
+window.angoraIsPartner    = async () => (await window.angoraResolveRole()).role === 'partner';
+
+async function angoraRenderRolePill() {
+  try {
+    const r = await window.angoraResolveRole();
+    const pill  = document.getElementById('rolePill');
+    const dot   = document.getElementById('rolePillDot');
+    const label = document.getElementById('rolePillLabel');
+    const scope = document.getElementById('rolePillScope');
+    if (!pill) return;
+    if (r.role === 'guest') { pill.style.display = 'none'; return; }
+    pill.style.display = 'inline-block';
+    pill.dataset.role = r.role;
+    if (dot) dot.style.background = r.color;
+    if (label) { label.textContent = r.displayLabel; label.style.color = r.color; }
+    if (scope) {
+      scope.textContent = r.role === 'partner' && r.scopeCount > 0
+        ? `· ${r.scopeCount} account${r.scopeCount===1?'':'s'}`
+        : '';
+    }
+  } catch (e) { /* defensive: never block Home if role probe fails */ }
+}
+
+// Render the pill once auth and DOM are both ready. Idempotent.
+(function _angoraRolePillBoot() {
+  function attempt() {
+    const ready = document.getElementById('rolePill') && window.angoraSupabase;
+    if (!ready) return setTimeout(attempt, 400);
+    angoraRenderRolePill();
+  }
+  if (document.readyState === 'complete' || document.readyState === 'interactive') attempt();
+  else document.addEventListener('DOMContentLoaded', attempt);
+})();
 
 // ─────────────────────────────────────────────────────────────────────────
 // brandpnl-v1: Brand-level P&L rollup across all accessible accounts.
