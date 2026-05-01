@@ -18149,6 +18149,38 @@ window.calDeleteAudit = async function() {
 
       <!-- ECONOMICS TAB -->
       <div class="acct-tab-panel" data-tabpanel="economics" id="acctPanelEconomics">
+
+        <!-- econproducts-v1: product catalog card (Name / ASIN / Price / COGS / Margin) -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;margin-bottom:18px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px">
+            <div class="acct-section-title" style="margin-bottom:0">Products</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div id="acctEconProductCount" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:2px 10px">\u2014</div>
+              <button onclick="acctAddProductFromProfile()" style="background:rgba(107,143,255,0.1);border:1px solid rgba(107,143,255,0.3);border-radius:20px;color:var(--accent);font-family:'DM Mono',monospace;font-size:9px;padding:3px 11px;cursor:pointer;letter-spacing:0.5px;font-weight:600;display:inline-flex;align-items:center;gap:5px;transition:all 0.15s" onmouseover="this.style.background='rgba(107,143,255,0.2)'" onmouseout="this.style.background='rgba(107,143,255,0.1)'">
+                <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="6" y1="1" x2="6" y2="11"/><line x1="1" y1="6" x2="11" y2="6"/></svg>
+                Add Product
+              </button>
+            </div>
+          </div>
+          <div style="overflow-x:auto">
+            <table class="acct-data-table" id="acctEconProductsTable">
+              <thead><tr>
+                <th>Product</th>
+                <th>ASIN</th>
+                <th style="text-align:right">Price</th>
+                <th style="text-align:right">COGS</th>
+                <th style="text-align:right">Margin</th>
+                <th></th>
+              </tr></thead>
+              <tbody id="acctEconProductsTbody"></tbody>
+            </table>
+          </div>
+          <div id="acctEconProductsEmpty" class="acct-empty" style="display:none">
+            No products are seeded for this account yet.<br>
+            <span class="acct-empty-action" onclick="acctAddProductFromProfile()">Add your first product</span>
+          </div>
+        </div>
+
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
             <div class="acct-section-title" style="margin-bottom:0">Per-SKU P&amp;L</div>
@@ -20237,12 +20269,62 @@ function acctFbaPerUnit(p) {
 }
 
 // ── ECONOMICS TAB ─────────────────────────────────────────────────────────
+// econproducts-v1: render the Products card on the Economics tab.
+// Pure read of `_acctCache.products`; never edits, deletes, or refetches the
+// existing Per-SKU P&L logic that follows.
+function acctRenderEconProductsCard() {
+  try {
+    const tbody  = document.getElementById('acctEconProductsTbody');
+    const empty  = document.getElementById('acctEconProductsEmpty');
+    const count  = document.getElementById('acctEconProductCount');
+    if (!tbody) return;
+    const products = _acctCache.products || [];
+    if (count) count.textContent = products.length + ' ' + (products.length === 1 ? 'product' : 'products');
+    if (!products.length) {
+      tbody.innerHTML = '';
+      if (empty) empty.style.display = 'block';
+      return;
+    }
+    if (empty) empty.style.display = 'none';
+    const rows = products
+      .slice()
+      .sort((a,b) => Number(b.price||0) - Number(a.price||0))
+      .map(p => {
+        const price = Number(p.price || 0);
+        const cogs  = Number(p.cogs  || 0);
+        const fba   = Number(p.fba_fee_manual || 0);
+        const refp  = Number(p.referral_fee_pct ?? 15) / 100;
+        const totalCost = cogs + fba + (price * refp);
+        const margin    = price > 0 ? ((price - totalCost) / price) * 100 : 0;
+        const mColor = margin >= 25 ? '#3ecf6f' : margin >= 10 ? '#f5a623' : '#ff4d6d';
+        const name  = (p.name || p.sku || '\u2014').replace(/</g,'&lt;');
+        const safeBrand = (_acctActiveBrand || '').replace(/'/g,"\\'");
+        const safeKey   = String(p.id || p.sku || '').replace(/'/g,"\\'");
+        return `<tr>
+          <td style="font-weight:500">${name}</td>
+          <td style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:0.04em">${(p.asin || '\u2014').toString().replace(/</g,'&lt;')}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">$${price.toFixed(2)}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">$${cogs.toFixed(2)}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums;color:${mColor};font-weight:600">${margin.toFixed(1)}%</td>
+          <td style="text-align:right">
+            <button onclick="acctEditProduct('${safeBrand}','${safeKey}')" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;padding:3px 9px;cursor:pointer;letter-spacing:0.5px;transition:all 0.15s" onmouseover="this.style.borderColor='rgba(107,143,255,0.4)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">Edit</button>
+          </td>
+        </tr>`;
+      }).join('');
+    tbody.innerHTML = rows;
+  } catch (e) {
+    console.error('acctRenderEconProductsCard error', e);
+  }
+}
+
 async function acctRenderEconomicsTab() {
   const brand = _acctActiveBrand;
   const accountId = await acctEnsureAccount(brand);
   if (!accountId) return;
   const products = _acctCache.products.length ? _acctCache.products : await acctLoadProducts(accountId);
   _acctCache.products = products;
+  // econproducts-v1: render the catalog card alongside the existing Per-SKU P&L
+  try { acctRenderEconProductsCard(); } catch(e) { console.error('econ products card', e); }
   const tbody = document.getElementById('acctEconTbody');
   const tfoot = document.getElementById('acctEconTfoot');
   const empty = document.getElementById('acctEconEmpty');
@@ -21431,6 +21513,26 @@ function acctReportsRenderPnlTable() {
 // forecast, editable PSM commentary). Client-safe mode hides Angora 5%.
 // ═════════════════════════════════════════════════════════════════════════
 
+// crsections-v1: which sections appear in the rendered Client Report.
+// Each section can be toggled on/off by the PSM before generating.
+const _ACCT_CR_SECTIONS = [
+  { key: 'summary',   label: 'Executive Summary' },
+  { key: 'kpis',      label: 'Headline Metrics' },
+  { key: 'chart',     label: 'Revenue Trajectory' },
+  { key: 'fees',      label: 'Where the Money Went' },
+  { key: 'topskus',   label: 'Top Performers' },
+  { key: 'inventory', label: 'Inventory Watch' },
+  { key: 'forecast',  label: 'Looking Ahead' },
+  { key: 'products',  label: 'Products List' },
+  { key: 'notes',     label: 'PSM Commentary' },
+];
+const _ACCT_CR_DEFAULT_SECTIONS = (() => {
+  const o = {};
+  // Default everything ON except the new Products list (off by default; PSM opts in).
+  for (const s of _ACCT_CR_SECTIONS) o[s.key] = (s.key !== 'products');
+  return o;
+})();
+
 const _acctClientRpt = {
   mode: 'monthly',
   weekStart: null,   // 'YYYY-MM-DD' (Monday)
@@ -21438,7 +21540,33 @@ const _acctClientRpt = {
   clientSafe: true,
   notes: '',
   html: '',          // cached latest rendered HTML
+  sections: { ..._ACCT_CR_DEFAULT_SECTIONS },
 };
+
+function _acctCrSectionsKey() {
+  const period = _acctClientRpt.mode === 'weekly' ? _acctClientRpt.weekStart : _acctClientRpt.month;
+  return `angoraClientRptSections::${_acctCache.accountId||_acctActiveBrand}::${_acctClientRpt.mode}::${period}`;
+}
+function _acctCrLoadSections() {
+  try {
+    const raw = localStorage.getItem(_acctCrSectionsKey());
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        _acctClientRpt.sections = { ..._ACCT_CR_DEFAULT_SECTIONS, ...parsed };
+        return;
+      }
+    }
+  } catch(e){}
+  _acctClientRpt.sections = { ..._ACCT_CR_DEFAULT_SECTIONS };
+}
+function _acctCrSaveSections() {
+  try { localStorage.setItem(_acctCrSectionsKey(), JSON.stringify(_acctClientRpt.sections)); } catch(e){}
+}
+function acctClientReportToggleSection(key, on) {
+  _acctClientRpt.sections[key] = !!on;
+  _acctCrSaveSections();
+}
 
 function _ymd(d) {
   const y = d.getFullYear(), m = d.getMonth()+1, dd = d.getDate();
@@ -21490,6 +21618,16 @@ function acctRenderClientReportTab() {
   const notesKey = `angoraClientRptNotes::${_acctCache.accountId||_acctActiveBrand}::${_acctClientRpt.mode}::${_acctClientRpt.mode==='weekly'?_acctClientRpt.weekStart:_acctClientRpt.month}`;
   try { _acctClientRpt.notes = localStorage.getItem(notesKey) || _acctClientRpt.notes || ''; } catch(e){}
 
+  // crsections-v1: load saved section toggles for this account+period
+  _acctCrLoadSections();
+  const sectionChecks = _ACCT_CR_SECTIONS.map(s => `
+    <label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;padding:6px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:999px;transition:border-color 0.15s,background 0.15s">
+      <input type="checkbox" ${_acctClientRpt.sections[s.key]?'checked':''}
+        onchange="acctClientReportToggleSection('${s.key}', this.checked)"
+        style="accent-color:#a78bfa;cursor:pointer">
+      <span style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.06em;color:var(--text);text-transform:uppercase">${s.label}</span>
+    </label>`).join('');
+
   const modeBtn = (m, label) => `
     <button onclick="acctClientReportSetMode('${m}')"
       style="padding:9px 18px;background:${_acctClientRpt.mode===m?'linear-gradient(135deg,#6b8fff,#a78bfa)':'transparent'};
@@ -21526,10 +21664,16 @@ function acctRenderClientReportTab() {
         <button class="acct-save-btn" onclick="acctClientReportShift(1)" style="padding:6px 12px">›</button>
       </div>
 
+      <!-- crsections-v1: section toggles -->
+      <div style="margin-bottom:18px">
+        <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Sections to Include</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">${sectionChecks}</div>
+      </div>
+
       <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" ${_acctClientRpt.clientSafe?'checked':''} onchange="_acctClientRpt.clientSafe=this.checked;acctClientReportRender()" style="accent-color:#a78bfa">
-          <span style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text)">Client-safe view (hide Angora 5%)</span>
+          <span style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text)">Client-Safe View (Hide Angora 5%)</span>
         </label>
         <div style="flex:1"></div>
         <button onclick="acctClientReportRender()"
@@ -21734,6 +21878,26 @@ function acctClientReportGatherData() {
   const forecastRev = avgDailyRev * nextPeriodDays;
   const forecastUnits = avgDailyUnits * nextPeriodDays;
 
+  // crproducts-v1: full product catalog for this account (for the optional
+  // "Products" section in the Client Report). Carries name/SKU/ASIN/price/
+  // COGS/margin so the report can render a complete catalog table.
+  const productsList = (_acctCache.products || []).map(p => {
+    const price = Number(p.price || 0);
+    const c     = Number(p.cogs  || 0);
+    const fba   = Number(p.fba_fee_manual || 0);
+    const refp  = Number(p.referral_fee_pct ?? 15) / 100;
+    const totalCost = c + fba + (price * refp);
+    const margin    = price > 0 ? ((price - totalCost) / price) * 100 : 0;
+    return {
+      name:   _cleanName(p.name || p.sku),
+      sku:    p.sku  || '',
+      asin:   p.asin || '',
+      price,
+      cogs:   c,
+      margin,
+    };
+  }).sort((a,b) => b.price - a.price);
+
   return {
     brand: _acctCache.brand || _acctActiveBrand || '—',
     psm: _acctCurrentPsm(),
@@ -21742,7 +21906,9 @@ function acctClientReportGatherData() {
     angoraFee, netProfit, netMargin, aov, tacos,
     dRevPct, dUnitsPct, dAdsPct, prevRev, prevUnits, prevAds,
     days, topSkus, invAlerts, forecastRev, forecastUnits,
+    productsList,
     clientSafe,
+    sections: { ..._acctClientRpt.sections },
     notes: _acctClientRpt.notes || '',
   };
 }
@@ -21904,24 +22070,24 @@ function acctBuildClientReportHtml(d) {
   <!-- HERO -->
   <div style="margin-top:54px;margin-bottom:40px">
     <div class="label" style="margin-bottom:18px">Performance Report · ${d.labelShort}</div>
-    <div class="h-display">${d.mode === 'weekly' ? 'Week in review.' : 'Month in review.'}</div>
-    <div style="margin-top:18px;font:400 16px/1.55 'Instrument Serif',Georgia,serif;color:${soft};font-style:italic;max-width:620px">${d.labelLong}${d.clientSafe ? ' · prepared for the brand partner.' : ' · internal Angora view.'}</div>
+    <div class="h-display">${d.mode === 'weekly' ? 'Week in Review' : 'Month in Review'}</div>
+    <div style="margin-top:18px;font:400 16px/1.55 'Instrument Serif',Georgia,serif;color:${soft};font-style:italic;max-width:620px">${d.labelLong}${d.clientSafe ? ' \u00b7 Prepared for the Brand Partner.' : ' \u00b7 Internal Angora View.'}</div>
   </div>
 
-  <!-- EXECUTIVE SUMMARY -->
+${d.sections.summary ? `  <!-- EXECUTIVE SUMMARY -->
   <div class="section" style="margin-top:0">
-    <div class="section-head"><div><div class="label">01</div><div class="h2">Executive summary</div></div></div>
+    <div class="section-head"><div><div class="label">01</div><div class="h2">Executive Summary</div></div></div>
     <div style="font:400 14.5px/1.75 Inter;color:${ink};max-width:720px">
       ${summaryLines.map(s => `<p style="margin:0 0 10px">${s}</p>`).join('')}
     </div>
   </div>
 
-  <div class="rule"></div>
+` : ``}  <div class="rule"></div>
 
-  <!-- KPI SCORECARD -->
+${d.sections.kpis ? `  <!-- KPI SCORECARD -->
   <div class="section" style="margin-top:0">
-    <div class="section-head"><div><div class="label">02</div><div class="h2">Headline metrics</div></div>
-      <div class="label" style="color:${soft}">vs ${d.mode === 'weekly' ? 'last week' : 'prior month'}</div>
+    <div class="section-head"><div><div class="label">02</div><div class="h2">Headline Metrics</div></div>
+      <div class="label" style="color:${soft}">vs ${d.mode === 'weekly' ? 'Last Week' : 'Prior Month'}</div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
       <div class="kpi">
@@ -21930,27 +22096,27 @@ function acctBuildClientReportHtml(d) {
         <div class="kd">${deltaPill(d.dRevPct)}</div>
       </div>
       <div class="kpi">
-        <div class="label">Units sold</div>
+        <div class="label">Units Sold</div>
         <div class="kv">${_fmtInt(d.units)}</div>
         <div class="kd">${deltaPill(d.dUnitsPct)}</div>
       </div>
       <div class="kpi">
-        <div class="label">${d.clientSafe ? 'Gross profit' : 'Net profit'}</div>
+        <div class="label">${d.clientSafe ? 'Gross Profit' : 'Net Profit'}</div>
         <div class="kv" style="color:${d.netProfit>=0?green:red}">${_fmtMoney(d.netProfit,{dash:false})}</div>
         <div class="kd"><span style="font:500 10.5px 'JetBrains Mono';color:${soft}">${d.netMargin.toFixed(1)}% margin</span></div>
       </div>
       <div class="kpi">
-        <div class="label">Average order</div>
+        <div class="label">Average Order</div>
         <div class="kv">${_fmtMoney(d.aov,{dash:false})}</div>
         <div class="kd"><span style="font:500 10.5px 'JetBrains Mono';color:${soft}">TACoS ${d.tacos.toFixed(1)}%</span></div>
       </div>
     </div>
   </div>
 
-  <!-- REVENUE TREND -->
+` : ``}${d.sections.chart ? `  <!-- REVENUE TREND -->
   <div class="section">
-    <div class="section-head"><div><div class="label">03</div><div class="h2">Revenue trajectory</div></div>
-      <div class="label" style="color:${soft}">Daily · ${d.days.length} days</div>
+    <div class="section-head"><div><div class="label">03</div><div class="h2">Revenue Trajectory</div></div>
+      <div class="label" style="color:${soft}">Daily · ${d.days.length} Days</div>
     </div>
     <div style="background:${paper2};border:1px solid ${rule};border-radius:10px;padding:18px 14px 12px">
       <svg viewBox="0 0 ${chartW} ${chartH}" style="width:100%;height:auto;display:block" preserveAspectRatio="xMidYMid meet">
@@ -21967,26 +22133,26 @@ function acctBuildClientReportHtml(d) {
     </div>
   </div>
 
-  <!-- FEE STACK -->
+` : ``}${d.sections.fees ? `  <!-- FEE STACK -->
   <div class="section">
-    <div class="section-head"><div><div class="label">04</div><div class="h2">Where the money went</div></div>
-      <div class="label" style="color:${soft}">Revenue allocation</div>
+    <div class="section-head"><div><div class="label">04</div><div class="h2">Where the Money Went</div></div>
+      <div class="label" style="color:${soft}">Revenue Allocation</div>
     </div>
     <div style="background:${paper2};border:1px solid ${rule};border-radius:10px;padding:20px 20px 18px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
         <div style="font:500 13px Inter;color:${ink}">Gross revenue <span class="num" style="color:${soft};margin-left:8px">${_fmtMoney(d.revenue,{dash:false})}</span></div>
-        <div style="font:500 13px Inter;color:${d.netProfit>=0?green:red}">${d.netProfit>=0?'Net profit':'Net loss'} <span class="num" style="margin-left:8px">${_fmtMoney(Math.abs(d.netProfit),{dash:false})}</span></div>
+        <div style="font:500 13px Inter;color:${d.netProfit>=0?green:red}">${d.netProfit>=0?'Net Profit':'Net Loss'} <span class="num" style="margin-left:8px">${_fmtMoney(Math.abs(d.netProfit),{dash:false})}</span></div>
       </div>
       <div style="display:flex;height:28px;border-radius:6px;overflow:hidden;border:1px solid ${rule}">${stackHtml}</div>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px 28px;margin-top:18px">${legendHtml}</div>
     </div>
   </div>
 
-  <!-- TOP SKUs + INVENTORY (two-col) -->
+` : ``}${(d.sections.topskus || d.sections.inventory) ? `  <!-- TOP SKUs + INVENTORY (two-col) -->
   <div class="section">
     <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:24px;align-items:flex-start">
-      <div>
-        <div class="section-head"><div><div class="label">05</div><div class="h2">Top performers</div></div></div>
+${d.sections.topskus ? `      <div>
+        <div class="section-head"><div><div class="label">05</div><div class="h2">Top Performers</div></div></div>
         <div style="background:${paper2};border:1px solid ${rule};border-radius:10px;overflow:hidden">
           <table style="width:100%;border-collapse:collapse">
             <thead><tr style="background:${paper}">
@@ -21999,56 +22165,86 @@ function acctBuildClientReportHtml(d) {
           </table>
         </div>
       </div>
-      <div>
-        <div class="section-head"><div><div class="label">06</div><div class="h2">Inventory watch</div></div></div>
+` : ``}${d.sections.inventory ? `      <div>
+        <div class="section-head"><div><div class="label">06</div><div class="h2">Inventory Watch</div></div></div>
         <div style="background:${paper2};border:1px solid ${rule};border-radius:10px;overflow:hidden">
           ${d.invAlerts.length ? `<table style="width:100%;border-collapse:collapse">
             <thead><tr style="background:${paper}">
               <th class="label" style="text-align:left;padding:11px 14px;border-bottom:1px solid ${rule}">SKU</th>
-              <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">On hand</th>
-              <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">Days supply</th>
+              <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">On Hand</th>
+              <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">Days Supply</th>
               <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">Status</th>
             </tr></thead>
             <tbody>${invRows}</tbody>
           </table>` : `<div style="padding:28px 18px;text-align:center;color:${soft};font:400 13px/1.55 Inter;font-style:italic">All SKUs are comfortably stocked. No alerts this ${d.mode === 'weekly' ? 'week' : 'month'}.</div>`}
         </div>
       </div>
-    </div>
+` : ``}    </div>
   </div>
-
-  <!-- FORECAST -->
+` : ``}
+${d.sections.forecast ? `  <!-- FORECAST -->
   <div class="section">
-    <div class="section-head"><div><div class="label">07</div><div class="h2">Looking ahead</div></div>
-      <div class="label" style="color:${soft}">Next ${d.mode === 'weekly' ? 'week' : 'month'} projection</div>
+    <div class="section-head"><div><div class="label">07</div><div class="h2">Looking Ahead</div></div>
+      <div class="label" style="color:${soft}">Next ${d.mode === 'weekly' ? 'Week' : 'Month'} Projection</div>
     </div>
     <div style="background:linear-gradient(100deg,${accentSoft},${paper2});border:1px solid ${rule};border-radius:10px;padding:24px 26px;display:grid;grid-template-columns:1fr 1fr;gap:24px">
       <div>
-        <div class="label" style="color:${accent};margin-bottom:10px">Projected revenue</div>
+        <div class="label" style="color:${accent};margin-bottom:10px">Projected Revenue</div>
         <div style="font:400 38px/1.05 'Instrument Serif';color:${ink};letter-spacing:-0.01em">${_fmtMoney(d.forecastRev,{dash:false})}</div>
         <div style="font:500 10.5px 'JetBrains Mono';color:${soft};margin-top:8px;letter-spacing:0.04em">RANGE ${_fmtMoney(d.forecastRev*0.88,{dash:false})} — ${_fmtMoney(d.forecastRev*1.12,{dash:false})}</div>
       </div>
       <div>
-        <div class="label" style="color:${accent};margin-bottom:10px">Projected units</div>
+        <div class="label" style="color:${accent};margin-bottom:10px">Projected Units</div>
         <div style="font:400 38px/1.05 'Instrument Serif';color:${ink};letter-spacing:-0.01em">${_fmtInt(Math.round(d.forecastUnits))}</div>
         <div style="font:500 10.5px 'JetBrains Mono';color:${soft};margin-top:8px;letter-spacing:0.04em">BASED ON ${d.daysInPeriod}-DAY PACE</div>
       </div>
     </div>
   </div>
 
-  <!-- PSM COMMENTARY -->
+` : ``}${d.sections.notes ? `  <!-- PSM COMMENTARY -->
   <div class="section">
-    <div class="section-head"><div><div class="label">08</div><div class="h2">Notes from your Partner Success Manager</div></div></div>
+    <div class="section-head"><div><div class="label">08</div><div class="h2">Notes from Your Partner Success Manager</div></div></div>
     <div style="background:${paper2};border-left:3px solid ${accent};border-radius:0 10px 10px 0;padding:22px 26px">
       ${noteParas}
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid ${rule};font:500 10px 'JetBrains Mono';letter-spacing:0.14em;text-transform:uppercase;color:${soft}">— ${d.psm}</div>
     </div>
   </div>
 
+` : ``}  <!-- PRODUCTS LIST (crproducts-v1, off by default) -->
+  ${d.sections.products ? `
+  <div class="section">
+    <div class="section-head"><div><div class="label">09</div><div class="h2">Product Catalog</div></div>
+      <div class="label" style="color:${soft}">${d.productsList.length} ${d.productsList.length === 1 ? 'SKU' : 'SKUs'}</div>
+    </div>
+    <div style="background:${paper2};border:1px solid ${rule};border-radius:10px;overflow:hidden">
+      ${d.productsList.length ? `<table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:${paper}">
+          <th class="label" style="text-align:left;padding:11px 14px;border-bottom:1px solid ${rule}">Product</th>
+          <th class="label" style="text-align:left;padding:11px 14px;border-bottom:1px solid ${rule}">ASIN</th>
+          <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">Price</th>
+          <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">COGS</th>
+          <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">Margin</th>
+        </tr></thead>
+        <tbody>
+          ${d.productsList.map(p => `
+          <tr>
+            <td style="padding:11px 14px;border-bottom:1px solid ${rule};font:500 12px/1.35 Inter;color:${ink}">${_cleanName(p.name)}</td>
+            <td style="padding:11px 14px;border-bottom:1px solid ${rule};font:500 11px 'JetBrains Mono';color:${soft};letter-spacing:0.04em">${p.asin || '\u2014'}</td>
+            <td style="padding:11px 14px;border-bottom:1px solid ${rule};text-align:right;font:500 12px 'JetBrains Mono';color:${ink};font-variant-numeric:tabular-nums">${_fmtMoney(p.price,{dash:false})}</td>
+            <td style="padding:11px 14px;border-bottom:1px solid ${rule};text-align:right;font:500 12px 'JetBrains Mono';color:${ink};font-variant-numeric:tabular-nums">${_fmtMoney(p.cogs,{dash:false})}</td>
+            <td style="padding:11px 14px;border-bottom:1px solid ${rule};text-align:right;font:500 12px 'JetBrains Mono';color:${p.margin>=25?green:p.margin>=10?amber:red};font-variant-numeric:tabular-nums">${p.margin.toFixed(1)}%</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>` : `<div style="padding:28px 18px;text-align:center;color:${soft};font:400 13px/1.55 Inter;font-style:italic">No products are seeded for this account yet.</div>`}
+    </div>
+  </div>
+  ` : ''}
+
   <!-- FOOTER -->
   <div style="margin-top:60px;padding-top:24px;border-top:1px solid ${ink};display:flex;justify-content:space-between;align-items:center">
     <div style="display:flex;align-items:center;gap:12px">
       <div style="width:24px;height:24px;border-radius:50%;background:${ink};color:${paper};display:flex;align-items:center;justify-content:center;font:700 11px 'Instrument Serif'">A</div>
-      <div class="label" style="color:${soft}">Angora · ${d.clientSafe ? 'Prepared for partner review' : 'Internal Angora copy'}</div>
+      <div class="label" style="color:${soft}">Angora · ${d.clientSafe ? 'Prepared for Partner Review' : 'Internal Angora Copy'}</div>
     </div>
     <div class="label" style="color:${soft}">Confidential · ${d.labelShort}</div>
   </div>
