@@ -13568,6 +13568,16 @@ async function slSaveProduct() {
   // If this edit was launched from the account profile panel, refresh it too
   if (window._acctEditReturnBrand) {
     await acctRenderProducts(window._acctEditReturnBrand);
+    // acctaddprod-sync-v1: mirror this save into angora_products so Economics,
+    // Inventory, Sales, Client Report, and the new Economics Products card see
+    // the new/edited SKU immediately. Wrapped in try/catch — never blocks the
+    // primary product_libraries save.
+    try {
+      const r = await acctaddprodSyncToAngoraProducts(window._acctEditReturnBrand, product);
+      if (r && r.error) console.warn('acctaddprod-sync warning:', r.error);
+      // refresh the new Economics Products card if it's mounted
+      try { if (typeof acctRenderEconProductsCard === 'function') { await acctLoadProducts(_acctCache.accountId); _acctCache.products = await acctLoadProducts(_acctCache.accountId); acctRenderEconProductsCard(); } } catch(e){}
+    } catch (e) { console.warn('acctaddprod-sync threw', e); }
     window._acctEditReturnBrand = null;
   }
 }
@@ -15224,6 +15234,83 @@ async function acctRenderProducts(brand) {
 function acctEditProduct(brand, key) {
   window._acctEditReturnBrand = brand; // remember who to refresh after save
   slEditProduct(brand, key);
+}
+
+// acctaddprod-sync-v1: after slSaveProduct succeeds, mirror the manual product
+// into the normalized `angora_products` table for the active brand's account.
+// This keeps Economics, Inventory, Sales, the new Economics Products card, and
+// the Client Report Products List in sync with the brand library — no manual
+// "Seed Products to Account" step required for adds done from the profile.
+//
+// ADDITIVE-ONLY: this function is brand-new. The single line that calls it
+// inside slSaveProduct is wrapped in try/catch so a failure here cannot break
+// the existing save flow. If the call throws, the product is still safely in
+// the legacy product_libraries blob — only the angora_products mirror is missed.
+async function acctaddprodSyncToAngoraProducts(brand, productPayload) {
+  try {
+    if (!brand) return { skipped: 'no-brand' };
+    if (!productPayload || !productPayload.name) return { skipped: 'no-payload' };
+    const sb = window.angoraSupabase;
+    if (!sb) return { skipped: 'no-supabase' };
+
+    const accountId = await acctEnsureAccount(brand);
+    if (!accountId) return { skipped: 'no-account' };
+
+    const row = {
+      account_id: accountId,
+      name:       productPayload.name,
+      sku:        (productPayload.sku || productPayload.asin || (productPayload.name || '').slice(0, 40)) || null,
+      asin:       productPayload.asin || null,
+      category:   productPayload.category || null,
+      cogs:       Number(productPayload.cogs)  || 0,
+      price:      Number(productPayload.price) || 0,
+      weight_oz:  Number(productPayload.oz)    || null,
+      length_in:  Number(productPayload.l)     || null,
+      width_in:   Number(productPayload.w)     || null,
+      height_in:  Number(productPayload.h)     || null,
+      status:     'active',
+    };
+
+    // Match an existing angora_products row for this account by sku → asin → name.
+    // We never delete; we only update the matched row or insert a fresh one.
+    const { data: existing, error: selErr } = await sb.from('angora_products')
+      .select('id, sku, asin, name')
+      .eq('account_id', accountId);
+    if (selErr) { console.warn('acctaddprod-sync select err', selErr); return { error: selErr.message }; }
+
+    const norm = s => String(s || '').trim().toLowerCase();
+    let matchId = null;
+    if (row.sku) {
+      const m = (existing || []).find(e => norm(e.sku) === norm(row.sku));
+      if (m) matchId = m.id;
+    }
+    if (!matchId && row.asin) {
+      const m = (existing || []).find(e => norm(e.asin) === norm(row.asin));
+      if (m) matchId = m.id;
+    }
+    if (!matchId && row.name) {
+      const m = (existing || []).find(e => norm(e.name) === norm(row.name));
+      if (m) matchId = m.id;
+    }
+
+    if (matchId) {
+      const { error: updErr } = await sb.from('angora_products')
+        .update(row)
+        .eq('id', matchId);
+      if (updErr) { console.warn('acctaddprod-sync update err', updErr); return { error: updErr.message }; }
+      // Bust the in-memory cache so the next render reads fresh data
+      try { _acctCache.products = []; } catch(e){}
+      return { updated: matchId };
+    } else {
+      const { data: ins, error: insErr } = await sb.from('angora_products').insert(row).select();
+      if (insErr) { console.warn('acctaddprod-sync insert err', insErr); return { error: insErr.message }; }
+      try { _acctCache.products = []; } catch(e){}
+      return { inserted: (ins && ins[0] && ins[0].id) || true };
+    }
+  } catch (e) {
+    console.warn('acctaddprodSyncToAngoraProducts threw', e);
+    return { error: e && e.message };
+  }
 }
 
 // acctaddprod-v1: open the product modal prefilled with the active brand,
@@ -21528,8 +21615,8 @@ const _ACCT_CR_SECTIONS = [
 ];
 const _ACCT_CR_DEFAULT_SECTIONS = (() => {
   const o = {};
-  // Default everything ON except the new Products list (off by default; PSM opts in).
-  for (const s of _ACCT_CR_SECTIONS) o[s.key] = (s.key !== 'products');
+  // Default everything ON. PSM can untick what they don't want before generating.
+  for (const s of _ACCT_CR_SECTIONS) o[s.key] = true;
   return o;
 })();
 
@@ -21881,14 +21968,30 @@ function acctClientReportGatherData() {
   // crproducts-v1: full product catalog for this account (for the optional
   // "Products" section in the Client Report). Carries name/SKU/ASIN/price/
   // COGS/margin so the report can render a complete catalog table.
-  const productsList = (_acctCache.products || []).map(p => {
+  //
+  // Source priority: pull from angora_products (the normalized table) FIRST,
+  // then fall back to the legacy product_libraries JSONB so manual saves done
+  // before the angora_products sync ran still appear. Dedupe on name+ASIN.
+  const _legacyLibForBrand = (() => {
+    try {
+      const lib = (typeof _plCache !== 'undefined' && _plCache) ? _plCache : {};
+      const byBrand = lib[_acctCache.brand || _acctActiveBrand] || {};
+      return Object.values(byBrand);
+    } catch(e) { return []; }
+  })();
+
+  const _normName = s => String(s || '').trim().toLowerCase();
+  const _seenKey  = (n, a) => `${_normName(n)}::${_normName(a)}`;
+  const _seen     = new Set();
+
+  const _normalizedFromAngora = (_acctCache.products || []).map(p => {
     const price = Number(p.price || 0);
     const c     = Number(p.cogs  || 0);
     const fba   = Number(p.fba_fee_manual || 0);
     const refp  = Number(p.referral_fee_pct ?? 15) / 100;
     const totalCost = c + fba + (price * refp);
     const margin    = price > 0 ? ((price - totalCost) / price) * 100 : 0;
-    return {
+    const out = {
       name:   _cleanName(p.name || p.sku),
       sku:    p.sku  || '',
       asin:   p.asin || '',
@@ -21896,7 +21999,28 @@ function acctClientReportGatherData() {
       cogs:   c,
       margin,
     };
-  }).sort((a,b) => b.price - a.price);
+    _seen.add(_seenKey(out.name, out.asin));
+    return out;
+  });
+
+  const _normalizedFromLegacy = _legacyLibForBrand.map(p => {
+    const price = Number(p.price || 0);
+    const c     = Number(p.cogs  || 0);
+    const ship  = Number(p.shipCost || 0);
+    const refp  = 0.15;  // default referral assumption for legacy lib entries
+    const totalCost = c + ship + (price * refp);
+    const margin    = price > 0 ? ((price - totalCost) / price) * 100 : 0;
+    return {
+      name:   _cleanName(p.name),
+      sku:    '',
+      asin:   p.asin || '',
+      price,
+      cogs:   c,
+      margin,
+    };
+  }).filter(p => !_seen.has(_seenKey(p.name, p.asin)));
+
+  const productsList = [..._normalizedFromAngora, ..._normalizedFromLegacy].sort((a,b) => b.price - a.price);
 
   return {
     brand: _acctCache.brand || _acctActiveBrand || '—',
