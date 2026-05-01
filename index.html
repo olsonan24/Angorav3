@@ -4264,6 +4264,10 @@
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="12" height="3" rx="1" fill="currentColor" opacity="0.5"/><rect x="1" y="6" width="12" height="3" rx="1" fill="currentColor" opacity="0.7"/><rect x="1" y="11" width="7" height="2" rx="1" fill="currentColor"/></svg>
           Inventory Health
         </button>
+        <button class="nav-item" id="navInvcross" onclick="switchTool('invcross')">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="1" y="2" width="5" height="4" rx="0.6"/><rect x="8" y="2" width="5" height="4" rx="0.6"/><rect x="1" y="8" width="5" height="4" rx="0.6"/><rect x="8" y="8" width="5" height="4" rx="0.6"/></svg>
+          Inventory Across Accounts
+        </button>
         <button class="nav-item" id="navSalessku" onclick="switchTool('salessku')">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 10.5h10M2 7.5h7M2 4.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="11" cy="4.5" r="2" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M12.5 6l1 1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
           Sales by SKU
@@ -4438,6 +4442,10 @@
       <button class="sidebar-nav-item" onclick="switchTool('inv');sbSetActive(this)">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="1.6" stroke-linecap="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
         Inventory
+      </button>
+      <button class="sidebar-nav-item" onclick="switchTool('invcross');sbSetActive(this)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Across Accounts
       </button>
       <button class="sidebar-nav-item" onclick="switchTool('calc');sbSetActive(this)">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="1.6" stroke-linecap="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/></svg>
@@ -5445,6 +5453,78 @@
       <table><thead><tr><th>ASIN</th><th>FNSKU</th><th>Title</th><th>Sellable</th><th>Unsellable</th><th>Days Supply</th><th>Inv Age 0-90</th><th>Inv Age 91-180</th><th>Inv Age 181-270</th><th>Inv Age 271-365</th><th>Inv Age 365+</th><th>Restock Qty</th><th>Alert</th></tr></thead>
       <tbody id="invTableBody"></tbody></table>
     </div>
+  </div>
+</div>
+</div>
+
+<!-- invcross-v1: cross-account inventory dashboard with brand multi-select filter (M2 item 4) -->
+<div id="pageInvcross" class="page">
+<div class="main">
+  <div style="margin-bottom:16px">
+    <button onclick="switchTool('home')" style="background:none;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:0.04em;padding:0;transition:color 0.15s;text-transform:uppercase" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 2L3 6l4.5 4"/></svg>
+      The Garden
+    </button>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:18px;flex-wrap:wrap">
+    <div>
+      <h2 style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;margin:0 0 4px">Inventory Across Accounts</h2>
+      <p id="ixSubtitle" style="color:var(--muted);font-size:11px;margin:0">Loading inventory across all accounts you can access&hellip;</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input id="ixSearch" type="text" placeholder="Search SKU, ASIN, title&hellip;" oninput="ixApplyFilters()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'DM Mono',monospace;font-size:11px;padding:7px 10px;border-radius:8px;width:220px;outline:none">
+      <select id="ixStatusFilter" onchange="ixApplyFilters()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'DM Mono',monospace;font-size:11px;padding:7px 10px;border-radius:8px;outline:none">
+        <option value="all">All status</option>
+        <option value="oos">Out of stock</option>
+        <option value="low">Days supply &lt; 30</option>
+        <option value="reorder">Below reorder point</option>
+        <option value="healthy">Healthy</option>
+      </select>
+      <button onclick="initInvcross(true)" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:10px;padding:7px 12px;border-radius:8px;cursor:pointer">Refresh</button>
+    </div>
+  </div>
+
+  <!-- Brand multi-select chip bar -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:0.08em;color:var(--muted);text-transform:uppercase">Filter by brand</div>
+      <div style="display:flex;gap:6px">
+        <button onclick="ixSelectAllBrands()" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;padding:4px 10px;border-radius:6px;cursor:pointer">All</button>
+        <button onclick="ixClearBrands()" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;padding:4px 10px;border-radius:6px;cursor:pointer">None</button>
+      </div>
+    </div>
+    <div id="ixBrandChips" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+  </div>
+
+  <!-- KPI strip -->
+  <div id="ixKpiStrip" style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:16px"></div>
+
+  <!-- Table -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+    <div style="overflow-x:auto;max-height:62vh;overflow-y:auto">
+      <table id="ixTable" style="width:100%;border-collapse:collapse;font-family:'DM Mono',monospace;font-size:11px">
+        <thead style="position:sticky;top:0;background:var(--surface);z-index:2;box-shadow:0 1px 0 var(--border)">
+          <tr>
+            <th onclick="ixSort('brand')" style="text-align:left;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Brand <span class="ix-sort-arrow" data-col="brand"></span></th>
+            <th onclick="ixSort('sku')" style="text-align:left;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">SKU <span class="ix-sort-arrow" data-col="sku"></span></th>
+            <th style="text-align:left;padding:10px 12px;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Title</th>
+            <th onclick="ixSort('fba')" style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">FBA <span class="ix-sort-arrow" data-col="fba"></span></th>
+            <th onclick="ixSort('units30')" style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">30d Units <span class="ix-sort-arrow" data-col="units30"></span></th>
+            <th onclick="ixSort('avgDaily')" style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Avg Daily <span class="ix-sort-arrow" data-col="avgDaily"></span></th>
+            <th onclick="ixSort('daysOfSupply')" style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Days Supply <span class="ix-sort-arrow" data-col="daysOfSupply"></span></th>
+            <th onclick="ixSort('rop')" style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Reorder Pt <span class="ix-sort-arrow" data-col="rop"></span></th>
+            <th onclick="ixSort('lostSales')" style="text-align:right;padding:10px 12px;cursor:pointer;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Lost $ <span class="ix-sort-arrow" data-col="lostSales"></span></th>
+            <th style="text-align:left;padding:10px 12px;font-weight:700;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Status</th>
+          </tr>
+        </thead>
+        <tbody id="ixTableBody">
+          <tr><td colspan="10" style="padding:24px;text-align:center;color:var(--muted)">Loading&hellip;</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div style="margin-top:10px;color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:0.04em">
+    Days Supply = FBA &divide; avg daily units (last 30d). Reorder Point = avg&nbsp;daily &times; lead time + safety stock (Z=1.65, &sigma;=30%, default lead time 60d).
   </div>
 </div>
 </div>
@@ -8854,14 +8934,14 @@ function switchTool(tool) {
   currentTool = tool;
   if (tool === 'home') { setTimeout(initDashboard, 50); setTimeout(renderHomeAuditPreview, 80); }
   if (tool === 'inbox') { setTimeout(initInbox, 50); }
-  ['home','ppc','pnl','funnel','sku','skulib','inv','salessku','calc','weekly','settings','adminqueue','audit','ops','auditsched','inbox'].forEach(t => {
+  ['home','ppc','pnl','funnel','sku','skulib','inv','invcross','salessku','calc','weekly','settings','adminqueue','audit','ops','auditsched','inbox'].forEach(t => {
     const cap  = t.charAt(0).toUpperCase() + t.slice(1);
     const page = document.getElementById('page' + cap);
     const nav  = document.getElementById('nav'  + cap);
     if (page) page.classList.toggle('active', t === tool);
     if (nav)  nav.classList.toggle('active',  t === tool);
   });
-  const names = { home: 'The Garden', ppc: 'Search Term Audit', pnl: 'P&L Analysis', funnel: 'Funnel Audit', sku: 'SKU Economics', inv: 'Inventory Health', salessku: 'Sales by SKU', calc: 'FBA Calculator', weekly: 'Weekly Report', settings: 'Settings', adminqueue: 'Admin Approvals', audit: 'Monthly Brand Audit', ops: 'Account OPS', inbox: 'Messages Inbox' };
+  const names = { home: 'The Garden', ppc: 'Search Term Audit', pnl: 'P&L Analysis', funnel: 'Funnel Audit', sku: 'SKU Economics', inv: 'Inventory Health', invcross: 'Inventory Across Accounts', salessku: 'Sales by SKU', calc: 'FBA Calculator', weekly: 'Weekly Report', settings: 'Settings', adminqueue: 'Admin Approvals', audit: 'Monthly Brand Audit', ops: 'Account OPS', inbox: 'Messages Inbox' };
   const badges = { ppc: 'Sponsored Products', pnl: 'Transaction View', funnel: 'Brand Analytics', sku: 'Business Report', inv: 'FBA Inventory', calc: 'FBA Fees 2025', weekly: 'Performance Dashboard', adminqueue: 'Super Admin Queue', audit: 'Deep Dive Analysis' };
   const nameEl  = document.getElementById('headerToolName');
   const badgeEl = document.getElementById('headerBadge');
@@ -8879,6 +8959,7 @@ function switchTool(tool) {
   if (tool === 'sku')    initSku();
   if (tool === 'skulib') initSkulib();
   if (tool === 'inv')    initInv();
+  if (tool === 'invcross') initInvcross();
   if (tool === 'weekly') initWeekly();
   if (tool === 'settings') initSettingsAdminApprovals();
   if (tool === 'adminqueue') initSettingsAdminApprovals();
@@ -21783,6 +21864,316 @@ async function gardenSyncPartnerLibrary() {
     sub.textContent = 'Error: ' + (e.message || e) + '. Check Monday API key in Vercel env.';
     btn.textContent = 'Retry';
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// invcross-v1: Cross-account Inventory dashboard with brand multi-select.
+// Reads from angora_accounts (RLS-scoped) → angora_products → angora_inventory
+// → angora_daily_sales (last 30d). Computes Days Supply, Reorder Point, Lost Sales
+// per SKU. Pure read; never writes. Defensive: any failed query becomes empty data
+// and the page still renders. Sentinel: invcross-v1.
+// ─────────────────────────────────────────────────────────────────────────
+const _ixState = { rows: [], brands: new Set(), selectedBrands: new Set(), sortKey: 'daysOfSupply', sortDir: 'asc', loaded: false };
+
+function ixFmtMoney(v) { if (!isFinite(v)) return '$0'; const n = Math.round(v); return '$' + n.toLocaleString('en-US'); }
+function ixFmtNum(v, dec=0) { if (!isFinite(v)) return '–'; return Number(v).toFixed(dec); }
+
+async function initInvcross(force = false) {
+  const body = document.getElementById('ixTableBody');
+  const sub  = document.getElementById('ixSubtitle');
+  if (body) body.innerHTML = '<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--muted)">Loading…</td></tr>';
+  if (sub)  sub.textContent  = 'Loading inventory across all accounts you can access…';
+
+  if (!force && _ixState.loaded) {
+    ixApplyFilters();
+    return;
+  }
+
+  const sb = window.angoraSupabase;
+  if (!sb) {
+    if (body) body.innerHTML = '<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--muted)">Not signed in.</td></tr>';
+    return;
+  }
+
+  try {
+    // 1) Accounts (RLS does its job — partners see only their accounts).
+    const { data: accounts, error: accErr } = await sb.from('angora_accounts')
+      .select('id, name')
+      .eq('status', 'active')
+      .order('name');
+    if (accErr) throw accErr;
+
+    if (!accounts || accounts.length === 0) {
+      if (body) body.innerHTML = '<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--muted)">No accounts to display.</td></tr>';
+      if (sub)  sub.textContent = '0 accounts.';
+      return;
+    }
+    const accountById = {};
+    accounts.forEach(a => { accountById[a.id] = a; });
+
+    // 2) Products across all accessible accounts.
+    const accountIds = accounts.map(a => a.id);
+    const { data: products, error: prodErr } = await sb.from('angora_products')
+      .select('id, account_id, sku, asin, name, price')
+      .in('account_id', accountIds);
+    if (prodErr) throw prodErr;
+
+    const productIds = (products || []).map(p => p.id);
+    if (productIds.length === 0) {
+      if (body) body.innerHTML = '<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--muted)">No products found in any account yet.</td></tr>';
+      if (sub)  sub.textContent  = `${accounts.length} account${accounts.length===1?'':'s'} · 0 products`;
+      ixRenderBrandChips([]);
+      ixRenderKpis({ skus:0, oos:0, low:0, reorder:0, lostSales:0 });
+      _ixState.loaded = true;
+      return;
+    }
+
+    // 3) Inventory rows (graceful if the FBA column comes back empty).
+    let invRows = [];
+    try {
+      const { data, error } = await sb.from('angora_inventory')
+        .select('product_id, location, quantity')
+        .in('product_id', productIds);
+      if (error) throw error;
+      invRows = data || [];
+    } catch (e) {
+      console.warn('[invcross] inventory load fallback:', e.message || e);
+      invRows = [];
+    }
+    const invByProduct = {};
+    invRows.forEach(r => {
+      const pid = r.product_id;
+      const loc = r.location || 'other';
+      if (!invByProduct[pid]) invByProduct[pid] = { fba:0, awd:0, angora:0, other:0 };
+      invByProduct[pid][loc] = (invByProduct[pid][loc] || 0) + (r.quantity || 0);
+    });
+
+    // 4) Last 30 days of daily sales.
+    const since = new Date(Date.now() - 30*86400000).toISOString().slice(0,10);
+    let salesRows = [];
+    try {
+      const { data, error } = await sb.from('angora_daily_sales')
+        .select('product_id, sale_date, units_sold, revenue')
+        .in('product_id', productIds)
+        .gte('sale_date', since);
+      if (error) throw error;
+      salesRows = data || [];
+    } catch (e) {
+      console.warn('[invcross] sales load fallback:', e.message || e);
+      salesRows = [];
+    }
+    const last30UnitsByProduct = {};
+    const recentRevByProduct = {};
+    const recentUnitsByProduct = {};
+    salesRows.forEach(s => {
+      const pid = s.product_id;
+      last30UnitsByProduct[pid] = (last30UnitsByProduct[pid] || 0) + (s.units_sold || 0);
+      recentRevByProduct[pid]   = (recentRevByProduct[pid]   || 0) + parseFloat(s.revenue || 0);
+      recentUnitsByProduct[pid] = (recentUnitsByProduct[pid] || 0) + (s.units_sold || 0);
+    });
+
+    // 5) Build per-SKU rows.
+    const LEAD_TIME = 60;          // default; product-level override (lead_time_days) honored when present
+    const SAFETY_Z  = 1.65;
+    const SIGMA_PCT = 0.30;
+    const rows = [];
+    const brandSet = new Set();
+    products.forEach(p => {
+      const acct = accountById[p.account_id];
+      if (!acct) return;
+      const brand = acct.name || 'Unknown';
+      brandSet.add(brand);
+      const inv = invByProduct[p.id] || { fba:0, awd:0, angora:0, other:0 };
+      const fba = inv.fba || 0;
+      const units30 = last30UnitsByProduct[p.id] || 0;
+      const avgDaily = units30 / 30;
+      const leadTime = (p.lead_time_days && p.lead_time_days > 0) ? p.lead_time_days : LEAD_TIME;
+      const sigma = avgDaily * SIGMA_PCT;
+      const safety = SAFETY_Z * sigma * Math.sqrt(leadTime);
+      const rop = avgDaily * leadTime + safety;
+      const daysOfSupply = avgDaily > 0 ? fba / avgDaily : (fba > 0 ? Infinity : 0);
+
+      // Lost sales estimate while OOS (fba=0 and we had recent sales)
+      let lostSales = 0;
+      if (fba === 0 && units30 > 0) {
+        // assume 14d max OOS window; ASP from recent revenue/units
+        const daysOut = 14;
+        const asp = recentUnitsByProduct[p.id] > 0 ? (recentRevByProduct[p.id] / recentUnitsByProduct[p.id]) : 0;
+        lostSales = avgDaily * daysOut * asp;
+      }
+
+      let status = 'healthy';
+      if (fba === 0 && units30 > 0) status = 'oos';
+      else if (avgDaily > 0 && daysOfSupply < 30) status = 'low';
+      else if (avgDaily > 0 && fba > 0 && fba <= rop) status = 'reorder';
+
+      rows.push({
+        accountId: p.account_id,
+        brand,
+        sku: p.sku || '',
+        asin: p.asin || '',
+        title: p.name || '',
+        fba,
+        units30,
+        avgDaily,
+        daysOfSupply: isFinite(daysOfSupply) ? daysOfSupply : 9999,
+        rop,
+        lostSales,
+        status
+      });
+    });
+
+    _ixState.rows = rows;
+    _ixState.brands = brandSet;
+    if (_ixState.selectedBrands.size === 0) {
+      // Default: all brands selected on first load
+      _ixState.selectedBrands = new Set(brandSet);
+    } else {
+      // Drop any brand that no longer exists
+      _ixState.selectedBrands = new Set([..._ixState.selectedBrands].filter(b => brandSet.has(b)));
+    }
+    _ixState.loaded = true;
+
+    if (sub) sub.textContent = `${accounts.length} account${accounts.length===1?'':'s'} · ${rows.length} SKU${rows.length===1?'':'s'} · last-30d sales window`;
+    ixRenderBrandChips([...brandSet].sort());
+    ixApplyFilters();
+
+  } catch (e) {
+    console.error('[invcross] failed:', e);
+    if (body) body.innerHTML = `<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--muted)">Could not load inventory: ${(e && e.message) ? e.message : e}</td></tr>`;
+    if (sub)  sub.textContent = 'Error loading inventory.';
+  }
+}
+
+function ixRenderBrandChips(brands) {
+  const wrap = document.getElementById('ixBrandChips');
+  if (!wrap) return;
+  if (!brands.length) {
+    wrap.innerHTML = '<span style="color:var(--muted);font-family:\'DM Mono\',monospace;font-size:10px">No brands.</span>';
+    return;
+  }
+  wrap.innerHTML = brands.map(b => {
+    const active = _ixState.selectedBrands.has(b);
+    const safe = b.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    return `<button onclick="ixToggleBrand('${safe}')" style="background:${active?'var(--accent)':'transparent'};color:${active?'#0a0a0a':'var(--text)'};border:1px solid ${active?'var(--accent)':'var(--border)'};font-family:'DM Mono',monospace;font-size:10px;padding:5px 10px;border-radius:14px;cursor:pointer;transition:all 0.12s">${b}</button>`;
+  }).join('');
+}
+
+function ixToggleBrand(brand) {
+  if (_ixState.selectedBrands.has(brand)) _ixState.selectedBrands.delete(brand);
+  else _ixState.selectedBrands.add(brand);
+  ixRenderBrandChips([..._ixState.brands].sort());
+  ixApplyFilters();
+}
+function ixSelectAllBrands() { _ixState.selectedBrands = new Set(_ixState.brands); ixRenderBrandChips([..._ixState.brands].sort()); ixApplyFilters(); }
+function ixClearBrands()     { _ixState.selectedBrands = new Set();                  ixRenderBrandChips([..._ixState.brands].sort()); ixApplyFilters(); }
+
+function ixSort(key) {
+  if (_ixState.sortKey === key) {
+    _ixState.sortDir = _ixState.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _ixState.sortKey = key;
+    _ixState.sortDir = (key === 'daysOfSupply' || key === 'rop') ? 'asc' : 'desc';
+  }
+  ixApplyFilters();
+}
+
+function ixApplyFilters() {
+  const body = document.getElementById('ixTableBody');
+  if (!body) return;
+  const search = (document.getElementById('ixSearch')?.value || '').toLowerCase().trim();
+  const statusFilter = document.getElementById('ixStatusFilter')?.value || 'all';
+  const sel = _ixState.selectedBrands;
+
+  let rows = _ixState.rows.filter(r => sel.has(r.brand));
+  if (search) {
+    rows = rows.filter(r =>
+      (r.sku && r.sku.toLowerCase().includes(search)) ||
+      (r.asin && r.asin.toLowerCase().includes(search)) ||
+      (r.title && r.title.toLowerCase().includes(search)) ||
+      (r.brand && r.brand.toLowerCase().includes(search))
+    );
+  }
+  if (statusFilter !== 'all') rows = rows.filter(r => r.status === statusFilter);
+
+  // Sort
+  const key = _ixState.sortKey;
+  const dir = _ixState.sortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    const av = a[key]; const bv = b[key];
+    if (typeof av === 'string') return av.localeCompare(bv) * dir;
+    return ((av || 0) - (bv || 0)) * dir;
+  });
+
+  // Update sort arrows
+  document.querySelectorAll('.ix-sort-arrow').forEach(el => {
+    if (el.dataset.col === _ixState.sortKey) {
+      el.textContent = _ixState.sortDir === 'asc' ? '↑' : '↓';
+      el.style.color = 'var(--accent)';
+    } else {
+      el.textContent = '';
+    }
+  });
+
+  // KPI strip
+  ixRenderKpis({
+    skus: rows.length,
+    oos: rows.filter(r => r.status === 'oos').length,
+    low: rows.filter(r => r.status === 'low').length,
+    reorder: rows.filter(r => r.status === 'reorder').length,
+    lostSales: rows.reduce((s,r) => s + (r.lostSales || 0), 0)
+  });
+
+  if (rows.length === 0) {
+    body.innerHTML = '<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--muted)">No SKUs match the current filters.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = rows.map(r => {
+    const statusPill = ixStatusPill(r.status);
+    const dsTxt = r.avgDaily > 0 ? ixFmtNum(r.daysOfSupply, 0) : '—';
+    const ropTxt = r.avgDaily > 0 ? ixFmtNum(r.rop, 0) : '—';
+    const lostTxt = r.lostSales > 0 ? ixFmtMoney(r.lostSales) : '—';
+    return `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:8px 12px;color:var(--text)">${r.brand}</td>
+      <td style="padding:8px 12px;color:var(--text)">${r.sku || '—'}</td>
+      <td style="padding:8px 12px;color:var(--muted);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.title||'').replace(/"/g,'&quot;')}">${r.title || '—'}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--text)">${r.fba.toLocaleString()}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--muted)">${r.units30.toLocaleString()}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--muted)">${ixFmtNum(r.avgDaily, 1)}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--text)">${dsTxt}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--muted)">${ropTxt}</td>
+      <td style="padding:8px 12px;text-align:right;color:#ff8b8b">${lostTxt}</td>
+      <td style="padding:8px 12px">${statusPill}</td>
+    </tr>`;
+  }).join('');
+}
+
+function ixStatusPill(s) {
+  const styles = {
+    oos:     ['#ff4d6d','rgba(255,77,109,0.15)','OOS'],
+    low:     ['#f59e0b','rgba(245,158,11,0.15)','LOW'],
+    reorder: ['#facc15','rgba(250,204,21,0.15)','REORDER'],
+    healthy: ['#34d399','rgba(52,211,153,0.12)','OK']
+  };
+  const [color, bg, label] = styles[s] || styles.healthy;
+  return `<span style="background:${bg};color:${color};border:1px solid ${color}40;font-family:'DM Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.06em;padding:3px 8px;border-radius:10px">${label}</span>`;
+}
+
+function ixRenderKpis(k) {
+  const wrap = document.getElementById('ixKpiStrip');
+  if (!wrap) return;
+  const card = (label, val, color) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+    <div style="font-family:'DM Mono',monospace;font-size:8px;letter-spacing:0.1em;color:var(--muted);text-transform:uppercase;margin-bottom:6px">${label}</div>
+    <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:${color||'var(--text)'}">${val}</div>
+  </div>`;
+  wrap.innerHTML = [
+    card('SKUs in view', k.skus.toLocaleString()),
+    card('Out of stock', k.oos.toLocaleString(), k.oos>0?'#ff4d6d':'var(--muted)'),
+    card('Days supply &lt; 30', k.low.toLocaleString(), k.low>0?'#f59e0b':'var(--muted)'),
+    card('Below reorder pt', k.reorder.toLocaleString(), k.reorder>0?'#facc15':'var(--muted)'),
+    card('Est lost revenue', ixFmtMoney(k.lostSales), k.lostSales>0?'#ff8b8b':'var(--muted)')
+  ].join('');
 }
 
 </script>
