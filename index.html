@@ -22187,6 +22187,32 @@ function acctClientReportGatherData() {
     g.pandp    += parseFloat(s.other_fees || 0);
     g.ads      += parseFloat(s.ad_spend  || 0);
   });
+
+  // crpsku-adsync-v1: honour the ad-spend overrides the user typed on the
+  // Economics tab. Overrides are keyed by `angoraEconAdsOverride:${accountId}:${range}`
+  // in localStorage. We merge across ALL ranges so whatever the user last
+  // typed wins, regardless of which trailing-N-days view they were in.
+  try {
+    const _acctId = _acctCache.accountId;
+    if (_acctId && typeof localStorage !== 'undefined') {
+      const _prefix = `angoraEconAdsOverride:${_acctId}:`;
+      const _merged = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith(_prefix)) continue;
+        try {
+          const obj = JSON.parse(localStorage.getItem(k) || '{}');
+          Object.entries(obj).forEach(([pid, val]) => {
+            const v = parseFloat(val);
+            if (!isNaN(v) && v >= 0) _merged[pid] = v; // last write wins (iteration order)
+          });
+        } catch(e) {}
+      }
+      Object.keys(_merged).forEach(pid => {
+        if (_byProd[pid]) _byProd[pid].ads = _merged[pid];
+      });
+    }
+  } catch(e) { /* harmless */ }
   const perSkuPnl = Object.values(_byProd).filter(g => g.units > 0).map(g => {
     const angora = g.netRev * _ANGORA_PCT;
     const net    = g.netRev - g.fba - g.referral - g.cogs - g.pandp - g.ads - angora;
