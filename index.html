@@ -21713,7 +21713,7 @@ const _ACCT_CR_SECTIONS = [
   { key: 'topskus',   label: 'Top Performers' },
   { key: 'inventory', label: 'Inventory Watch' },
   { key: 'forecast',  label: 'Looking Ahead' },
-  { key: 'products',  label: 'Products List' },
+  { key: 'products',  label: 'Per-SKU P&L' },
   { key: 'notes',     label: 'PSM Commentary' },
 ];
 const _ACCT_CR_DEFAULT_SECTIONS = (() => {
@@ -22125,6 +22125,49 @@ function acctClientReportGatherData() {
 
   const productsList = [..._normalizedFromAngora, ..._normalizedFromLegacy].sort((a,b) => b.price - a.price);
 
+  // crpsku-v1: Per-SKU P&L for the report period — mirrors the Economics tab
+  // table the PSM expects to see in the report. Aggregates curSales by product
+  // and applies the same fee model: FBA per unit, referral % of revenue, COGS
+  // per unit, P&P, ads, Angora 5% billable, net profit, margin.
+  const _ANGORA_PCT = 0.05;
+  const _byProd = {};
+  (_acctCache.products || []).forEach(p => {
+    _byProd[p.id] = { product: p, units: 0, netRev: 0, fba: 0, referral: 0, cogs: 0, pandp: 0, ads: 0 };
+  });
+  curSales.forEach(s => {
+    const g = _byProd[s.product_id]; if (!g) return;
+    const u = s.units_sold || 0;
+    const r = parseFloat(s.revenue) || 0;
+    const refPct = (g.product.referral_fee_pct || 15) / 100;
+    const fbaPerUnit = (typeof acctFbaPerUnit === 'function') ? (acctFbaPerUnit(g.product).fee || 0) : 0;
+    const cogsPerUnit = g.product.cogs || 0;
+    g.units    += u;
+    g.netRev   += r;
+    g.referral += r * refPct;
+    g.fba      += u * fbaPerUnit;
+    g.cogs     += u * cogsPerUnit;
+    g.pandp    += parseFloat(s.other_fees || 0);
+    g.ads      += parseFloat(s.ad_spend  || 0);
+  });
+  const perSkuPnl = Object.values(_byProd).filter(g => g.units > 0).map(g => {
+    const angora = g.netRev * _ANGORA_PCT;
+    const net    = g.netRev - g.fba - g.referral - g.cogs - g.pandp - g.ads - angora;
+    const margin = g.netRev > 0 ? (net / g.netRev * 100) : 0;
+    return {
+      name:     _cleanName(g.product.name || g.product.sku),
+      units:    g.units,
+      netRev:   g.netRev,
+      fba:      g.fba,
+      referral: g.referral,
+      cogs:     g.cogs,
+      pandp:    g.pandp,
+      ads:      g.ads,
+      angora,
+      net,
+      margin,
+    };
+  }).sort((a,b) => b.netRev - a.netRev);
+
   return {
     brand: _acctCache.brand || _acctActiveBrand || '—',
     psm: _acctCurrentPsm(),
@@ -22134,6 +22177,7 @@ function acctClientReportGatherData() {
     dRevPct, dUnitsPct, dAdsPct, prevRev, prevUnits, prevAds,
     days, topSkus, invAlerts, forecastRev, forecastUnits,
     productsList,
+    perSkuPnl,
     clientSafe,
     sections: { ..._acctClientRpt.sections },
     notes: _acctClientRpt.notes || '',
@@ -22437,35 +22481,70 @@ ${d.sections.forecast ? `  <!-- FORECAST -->
     </div>
   </div>
 
-` : ``}  <!-- PRODUCTS LIST (crproducts-v1, off by default) -->
-  ${d.sections.products ? `
+` : ``}  <!-- PER-SKU P&L (crpsku-v1) — mirrors the Economics tab table -->
+  ${d.sections.products ? (() => {
+    const pnl = d.perSkuPnl || [];
+    const $2 = v => Number(v||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 });
+    let totU=0,totRev=0,totFba=0,totRef=0,totCogs=0,totPp=0,totAds=0,totAng=0,totNet=0;
+    pnl.forEach(g => { totU+=g.units; totRev+=g.netRev; totFba+=g.fba; totRef+=g.referral; totCogs+=g.cogs; totPp+=g.pandp; totAds+=g.ads; totAng+=g.angora; totNet+=g.net; });
+    const totMargin = totRev > 0 ? (totNet/totRev*100) : 0;
+    const cellTh   = `text-align:right;padding:10px 12px;border-bottom:1px solid ${rule};font:600 9px 'JetBrains Mono';color:${soft};letter-spacing:0.16em;text-transform:uppercase`;
+    const cellThL  = cellTh.replace('text-align:right','text-align:left');
+    const cellNum  = `text-align:right;padding:10px 12px;border-bottom:1px solid ${rule};font:500 11px 'JetBrains Mono';color:${ink};font-variant-numeric:tabular-nums`;
+    const cellNeg  = `text-align:right;padding:10px 12px;border-bottom:1px solid ${rule};font:500 11px 'JetBrains Mono';color:#a83a3a;font-variant-numeric:tabular-nums`;
+    return `
   <div class="section">
-    <div class="section-head"><div><div class="label">09</div><div class="h2">Product Catalog</div></div>
-      <div class="label" style="color:${soft}">${d.productsList.length} ${d.productsList.length === 1 ? 'SKU' : 'SKUs'}</div>
+    <div class="section-head"><div><div class="label">09</div><div class="h2">Per-SKU P&amp;L</div></div>
+      <div class="label" style="color:${soft}">${pnl.length} ${pnl.length === 1 ? 'SKU' : 'SKUs'} \u00b7 ${d.labelShort}</div>
     </div>
     <div style="background:${paper2};border:1px solid ${rule};border-radius:10px;overflow:hidden">
-      ${d.productsList.length ? `<table style="width:100%;border-collapse:collapse">
+      ${pnl.length ? `<table style="width:100%;border-collapse:collapse">
         <thead><tr style="background:${paper}">
-          <th class="label" style="text-align:left;padding:11px 14px;border-bottom:1px solid ${rule}">Product</th>
-          <th class="label" style="text-align:left;padding:11px 14px;border-bottom:1px solid ${rule}">ASIN</th>
-          <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">Price</th>
-          <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">COGS</th>
-          <th class="label" style="text-align:right;padding:11px 14px;border-bottom:1px solid ${rule}">Margin</th>
+          <th style="${cellThL}">SKU</th>
+          <th style="${cellTh}">Units</th>
+          <th style="${cellTh}">Net Rev</th>
+          <th style="${cellTh}">FBA Fees</th>
+          <th style="${cellTh}">Referral</th>
+          <th style="${cellTh}">COGS</th>
+          <th style="${cellTh}">P&amp;P</th>
+          <th style="${cellTh}">Advert.</th>
+          <th style="${cellTh}">Angora 5%</th>
+          <th style="${cellTh}">Net Profit</th>
+          <th style="${cellTh}">Margin</th>
         </tr></thead>
         <tbody>
-          ${d.productsList.map(p => `
+          ${pnl.map(g => `
           <tr>
-            <td style="padding:11px 14px;border-bottom:1px solid ${rule};font:500 12px/1.35 Inter;color:${ink}">${_cleanName(p.name)}</td>
-            <td style="padding:11px 14px;border-bottom:1px solid ${rule};font:500 11px 'JetBrains Mono';color:${soft};letter-spacing:0.04em">${p.asin || '\u2014'}</td>
-            <td style="padding:11px 14px;border-bottom:1px solid ${rule};text-align:right;font:500 12px 'JetBrains Mono';color:${ink};font-variant-numeric:tabular-nums">${_fmtMoney(p.price,{dash:false})}</td>
-            <td style="padding:11px 14px;border-bottom:1px solid ${rule};text-align:right;font:500 12px 'JetBrains Mono';color:${ink};font-variant-numeric:tabular-nums">${_fmtMoney(p.cogs,{dash:false})}</td>
-            <td style="padding:11px 14px;border-bottom:1px solid ${rule};text-align:right;font:500 12px 'JetBrains Mono';color:${p.margin>=25?green:p.margin>=10?amber:red};font-variant-numeric:tabular-nums">${p.margin.toFixed(1)}%</td>
+            <td style="padding:10px 12px;border-bottom:1px solid ${rule};font:600 12px/1.35 Inter;color:${ink}">${g.name}</td>
+            <td style="${cellNum}">${g.units.toLocaleString()}</td>
+            <td style="${cellNum}">$${$2(g.netRev)}</td>
+            <td style="${cellNeg}">-$${$2(g.fba)}</td>
+            <td style="${cellNeg}">-$${$2(g.referral)}</td>
+            <td style="${cellNeg}">-$${$2(g.cogs)}</td>
+            <td style="${cellNeg}">-$${$2(g.pandp)}</td>
+            <td style="${cellNeg}">-$${$2(g.ads)}</td>
+            <td style="${cellNeg}">-$${$2(g.angora)}</td>
+            <td style="text-align:right;padding:10px 12px;border-bottom:1px solid ${rule};font:700 12px 'JetBrains Mono';color:${g.net>=0?green:red};font-variant-numeric:tabular-nums">$${$2(g.net)}</td>
+            <td style="text-align:right;padding:10px 12px;border-bottom:1px solid ${rule};font:600 11px 'JetBrains Mono';color:${g.margin>=25?green:g.margin>=10?amber:red};font-variant-numeric:tabular-nums">${g.margin.toFixed(2)}%</td>
           </tr>`).join('')}
+          <tr style="background:${paper}">
+            <td style="padding:12px;font:800 12px 'Instrument Serif';color:${ink};letter-spacing:0.05em;text-transform:uppercase">Total</td>
+            <td style="${cellNum};font-weight:800">${totU.toLocaleString()}</td>
+            <td style="${cellNum};font-weight:800">$${$2(totRev)}</td>
+            <td style="${cellNeg};font-weight:800">-$${$2(totFba)}</td>
+            <td style="${cellNeg};font-weight:800">-$${$2(totRef)}</td>
+            <td style="${cellNeg};font-weight:800">-$${$2(totCogs)}</td>
+            <td style="${cellNeg};font-weight:800">-$${$2(totPp)}</td>
+            <td style="${cellNeg};font-weight:800">-$${$2(totAds)}</td>
+            <td style="${cellNeg};font-weight:800">-$${$2(totAng)}</td>
+            <td style="text-align:right;padding:12px;font:800 13px 'JetBrains Mono';color:${totNet>=0?green:red};font-variant-numeric:tabular-nums">$${$2(totNet)}</td>
+            <td style="text-align:right;padding:12px;font:800 12px 'JetBrains Mono';color:${totMargin>=25?green:totMargin>=10?amber:red};font-variant-numeric:tabular-nums">${totMargin.toFixed(2)}%</td>
+          </tr>
         </tbody>
-      </table>` : `<div style="padding:28px 18px;text-align:center;color:${soft};font:400 13px/1.55 Inter;font-style:italic">No products are seeded for this account yet.</div>`}
+      </table>` : `<div style="padding:28px 18px;text-align:center;color:${soft};font:400 13px/1.55 Inter;font-style:italic">No sales recorded for this period yet.</div>`}
     </div>
-  </div>
-  ` : ''}
+  </div>`;
+  })() : ''}
 
   <!-- FOOTER -->
   <div style="margin-top:60px;padding-top:24px;border-top:1px solid ${ink};display:flex;justify-content:space-between;align-items:center">
