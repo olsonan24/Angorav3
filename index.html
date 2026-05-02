@@ -22027,9 +22027,11 @@ function acctClientReportGatherData() {
   // Angora 5% rev share
   const angoraFee = revenue * 0.05;
 
-  // Net profit (client-safe hides Angora 5% — treat it as zero)
+  // crpsku-netprofit-v1: Net profit ALWAYS includes Angora 5% so the headline,
+  // "Where the Money Went", and Per-SKU P&L total all reconcile. clientSafe is
+  // preserved for footer/branding only.
   const clientSafe = _acctClientRpt.clientSafe;
-  const netProfit = revenue - amazonFees - cogs - adSpend - rptStorage - rptPlacement - rptAged - (clientSafe ? 0 : angoraFee);
+  const netProfit = revenue - amazonFees - cogs - adSpend - rptStorage - rptPlacement - rptAged - angoraFee;
   const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
   const aov       = units > 0 ? revenue / units : 0;
   const tacos     = revenue > 0 ? (adSpend / revenue) * 100 : 0;
@@ -22293,7 +22295,8 @@ function acctBuildClientReportHtml(d) {
     { k:'Placement',    v: d.rptPlacement,c:'#4e5a8e' },
     { k:'Aged',         v: d.rptAged,     c:'#6d3b3b' },
   ];
-  if (!d.clientSafe) parts.push({ k:'Angora Service (5%)', v: d.angoraFee, c:'#5a3dbd' });
+  // crpsku-netprofit-v1: Angora 5% is always shown in the breakdown so the bar reconciles to gross revenue
+  parts.push({ k:'Angora Service (5%)', v: d.angoraFee, c:'#5a3dbd' });
   parts.push({ k: d.netProfit >= 0 ? 'Net Profit' : 'Net Loss', v: Math.max(0, d.netProfit), c: d.netProfit >= 0 ? '#1e6b3a' : '#a3313a' });
   const totalStack = Math.max(1, parts.reduce((s,p) => s + Math.max(0,p.v), 0));
   const stackHtml = parts.map(p => {
@@ -22437,7 +22440,7 @@ ${d.sections.kpis ? `  <!-- KPI SCORECARD -->
         <div class="kd">${deltaPill(d.dUnitsPct)}</div>
       </div>
       <div class="kpi">
-        <div class="label">${d.clientSafe ? 'Gross Profit' : 'Net Profit'}</div>
+        <div class="label">Net Profit</div>
         <div class="kv" style="color:${d.netProfit>=0?green:red}">${_fmtMoney(d.netProfit,{dash:false})}</div>
         <div class="kd"><span style="font:500 10.5px 'JetBrains Mono';color:${soft}">${d.netMargin.toFixed(1)}% margin</span></div>
       </div>
