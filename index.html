@@ -88,6 +88,54 @@
   .acct-dash-range { background:none; border:none; color:var(--muted); font-family:'DM Mono',monospace; font-size:10px; letter-spacing:1px; padding:6px 12px; border-radius:8px; cursor:pointer; transition:all 0.15s; }
   .acct-dash-range:hover { color:var(--text); }
   .acct-dash-range.active { background:linear-gradient(135deg,var(--accent),var(--accent2,#7c3aed)); color:#fff; font-weight:700; box-shadow:0 2px 10px rgba(167,139,250,0.35); }
+
+  /* ─── sales-calendar-v1: Date Range Calendar ─── */
+  .acct-cal-trigger { display:flex; align-items:center; gap:8px; background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:7px 14px; cursor:pointer; font-family:'DM Mono',monospace; font-size:10px; color:var(--text); letter-spacing:0.8px; transition:all 0.15s; white-space:nowrap; }
+  .acct-cal-trigger:hover { border-color:var(--accent); background:rgba(107,143,255,0.06); }
+  .acct-cal-trigger .acct-cal-icon { font-size:13px; }
+  .acct-cal-trigger .acct-cal-chevron { color:var(--muted); font-size:8px; margin-left:2px; transition:transform 0.2s; }
+  .acct-cal-trigger.open .acct-cal-chevron { transform:rotate(180deg); }
+  .acct-cal-popup { display:none; position:absolute; top:calc(100% + 6px); right:0; z-index:9999; width:320px; background:rgba(16,18,27,0.97); backdrop-filter:blur(20px); border:1px solid rgba(107,143,255,0.18); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,0.55),0 0 0 1px rgba(107,143,255,0.08); padding:14px; }
+  .acct-cal-popup.open { display:block; }
+  .acct-cal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .acct-cal-nav { background:none; border:1px solid transparent; color:var(--muted); font-size:11px; cursor:pointer; padding:4px 8px; border-radius:6px; transition:all 0.15s; }
+  .acct-cal-nav:hover { color:var(--text); background:rgba(107,143,255,0.08); border-color:rgba(107,143,255,0.15); }
+  .acct-cal-hdr-center { display:flex; align-items:center; gap:6px; }
+  .acct-cal-month-btn, .acct-cal-year-btn { background:none; border:1px solid transparent; cursor:pointer; font-family:'Syne',sans-serif; font-weight:700; padding:4px 10px; border-radius:6px; transition:all 0.15s; }
+  .acct-cal-month-btn { font-size:13px; color:var(--text); }
+  .acct-cal-year-btn { font-size:12px; color:var(--muted); }
+  .acct-cal-month-btn:hover, .acct-cal-year-btn:hover { background:rgba(107,143,255,0.08); border-color:rgba(107,143,255,0.15); color:var(--text); }
+  .acct-cal-weekdays { display:grid; grid-template-columns:24px repeat(7,1fr); gap:0; margin-bottom:4px; }
+  .acct-cal-weekdays > div { font-family:'DM Mono',monospace; font-size:8px; color:var(--muted); text-align:center; padding:4px 0; letter-spacing:1px; text-transform:uppercase; }
+  .acct-cal-week-row { display:grid; grid-template-columns:24px repeat(7,1fr); gap:0; align-items:center; border-radius:6px; transition:background 0.1s; }
+  .acct-cal-wk-btn { font-family:'DM Mono',monospace; font-size:7px; color:rgba(160,162,176,0.4); text-align:center; cursor:pointer; padding:2px 0; border-radius:4px; transition:all 0.15s; border:none; background:none; }
+  .acct-cal-wk-btn:hover { color:var(--accent); background:rgba(107,143,255,0.1); }
+  .acct-cal-day { display:flex; align-items:center; justify-content:center; width:100%; aspect-ratio:1; font-family:'DM Mono',monospace; font-size:11px; color:var(--text); cursor:pointer; border-radius:50%; transition:all 0.12s; border:2px solid transparent; position:relative; }
+  .acct-cal-day:hover { background:rgba(107,143,255,0.12); }
+  .acct-cal-day.outside { color:rgba(160,162,176,0.25); }
+  .acct-cal-day.outside:hover { color:var(--muted); }
+  .acct-cal-day.today { border-color:var(--accent); font-weight:700; }
+  .acct-cal-day.in-range { background:rgba(107,143,255,0.12); border-radius:0; }
+  .acct-cal-day.range-start { background:var(--accent); color:#fff; font-weight:700; border-radius:50% 0 0 50%; border-color:var(--accent); }
+  .acct-cal-day.range-end { background:var(--accent); color:#fff; font-weight:700; border-radius:0 50% 50% 0; border-color:var(--accent); }
+  .acct-cal-day.range-single { background:var(--accent); color:#fff; font-weight:700; border-radius:50%; border-color:var(--accent); }
+  .acct-cal-day.range-start.range-end { border-radius:50%; }
+  .acct-cal-day.preview { background:rgba(107,143,255,0.08); border-radius:0; }
+  .acct-cal-day.preview-end { background:rgba(107,143,255,0.18); border-radius:0 50% 50% 0; }
+  .acct-cal-month-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:8px 0; }
+  .acct-cal-mgrid-btn { background:none; border:1px solid transparent; color:var(--text); font-family:'DM Mono',monospace; font-size:11px; padding:10px 0; border-radius:8px; cursor:pointer; transition:all 0.15s; text-align:center; }
+  .acct-cal-mgrid-btn:hover { background:rgba(107,143,255,0.08); border-color:rgba(107,143,255,0.15); }
+  .acct-cal-mgrid-btn.in-range { background:rgba(107,143,255,0.12); }
+  .acct-cal-mgrid-btn.selected { background:var(--accent); color:#fff; font-weight:700; border-color:var(--accent); }
+  .acct-cal-mgrid-btn.current { border-color:var(--accent); }
+  .acct-cal-year-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:8px 0; }
+  .acct-cal-ygrid-btn { background:none; border:1px solid transparent; color:var(--text); font-family:'DM Mono',monospace; font-size:12px; padding:12px 0; border-radius:8px; cursor:pointer; transition:all 0.15s; text-align:center; }
+  .acct-cal-ygrid-btn:hover { background:rgba(107,143,255,0.08); border-color:rgba(107,143,255,0.15); }
+  .acct-cal-ygrid-btn.current { border-color:var(--accent); font-weight:700; }
+  .acct-cal-presets { display:flex; gap:4px; margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.05); }
+  .acct-cal-preset { flex:1; background:none; border:1px solid rgba(255,255,255,0.06); color:var(--muted); font-family:'DM Mono',monospace; font-size:9px; letter-spacing:0.8px; padding:5px 0; border-radius:6px; cursor:pointer; transition:all 0.15s; text-align:center; }
+  .acct-cal-preset:hover { color:var(--text); background:rgba(107,143,255,0.06); border-color:rgba(107,143,255,0.15); }
+  .acct-cal-preset.active { background:linear-gradient(135deg,var(--accent),var(--accent2,#7c3aed)); color:#fff; font-weight:700; border-color:transparent; }
   .acct-kpi-card { background:linear-gradient(135deg,var(--surface2),rgba(26,27,36,0.55)); border:1px solid var(--border); border-radius:14px; padding:14px 16px; position:relative; overflow:hidden; min-height:96px; }
   .acct-kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,var(--accent),transparent); opacity:0.5; }
   .acct-kpi-card:hover::before { opacity:1; }
@@ -285,6 +333,30 @@
   :root.light .acct-dash-range { color: var(--ink2) !important; font-weight: 600 !important; }
   :root.light .acct-dash-range:hover { color: var(--ink) !important; background: rgba(37,99,235,0.06); }
   :root.light .acct-dash-range.active { color: #fff !important; }
+
+  /* sales-calendar-v1 light mode */
+  :root.light .acct-cal-trigger { background:var(--surface2); border-color:var(--border); color:var(--ink); }
+  :root.light .acct-cal-trigger:hover { border-color:var(--accent); }
+  :root.light .acct-cal-popup { background:rgba(255,255,255,0.97); border-color:rgba(37,99,235,0.15); box-shadow:0 12px 40px rgba(0,0,0,0.12); }
+  :root.light .acct-cal-nav { color:var(--ink2); }
+  :root.light .acct-cal-nav:hover { color:var(--ink); background:rgba(37,99,235,0.06); }
+  :root.light .acct-cal-month-btn { color:var(--ink); }
+  :root.light .acct-cal-year-btn { color:var(--ink2); }
+  :root.light .acct-cal-day { color:var(--ink); }
+  :root.light .acct-cal-day.outside { color:rgba(0,0,0,0.2); }
+  :root.light .acct-cal-day:hover { background:rgba(37,99,235,0.08); }
+  :root.light .acct-cal-day.in-range { background:rgba(37,99,235,0.1); }
+  :root.light .acct-cal-day.range-start, :root.light .acct-cal-day.range-end, :root.light .acct-cal-day.range-single { background:var(--accent); color:#fff; }
+  :root.light .acct-cal-weekdays > div { color:var(--ink2); }
+  :root.light .acct-cal-wk-btn { color:rgba(0,0,0,0.2); }
+  :root.light .acct-cal-wk-btn:hover { color:var(--accent); }
+  :root.light .acct-cal-preset { color:var(--ink2); border-color:rgba(0,0,0,0.08); }
+  :root.light .acct-cal-preset:hover { color:var(--ink); background:rgba(37,99,235,0.06); }
+  :root.light .acct-cal-preset.active { color:#fff !important; }
+  :root.light .acct-cal-mgrid-btn { color:var(--ink); }
+  :root.light .acct-cal-mgrid-btn:hover { background:rgba(37,99,235,0.06); }
+  :root.light .acct-cal-ygrid-btn { color:var(--ink); }
+  :root.light .acct-cal-ygrid-btn:hover { background:rgba(37,99,235,0.06); }
 
   /* Section headers embedded as inline-styled divs inside Reports tab
      (e.g. "APRIL 2026" month label lives in .acct-section-title with id=acctReportsMonthLbl) */
@@ -18285,12 +18357,31 @@ window.calDeleteAudit = async function() {
               <div class="acct-section-title" style="margin-bottom:4px">Performance Over Time</div>
               <div id="acctDashRangeLabel" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase">—</div>
             </div>
-            <div style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:3px">
-              <button class="acct-dash-range" data-rng="7"   onclick="acctDashSetRange(7)">7D</button>
-              <button class="acct-dash-range" data-rng="30"  onclick="acctDashSetRange(30)">30D</button>
-              <button class="acct-dash-range active" data-rng="90"  onclick="acctDashSetRange(90)">90D</button>
-              <button class="acct-dash-range" data-rng="180" onclick="acctDashSetRange(180)">6M</button>
-              <button class="acct-dash-range" data-rng="365" onclick="acctDashSetRange(365)">1Y</button>
+            <!-- sales-calendar-v1: date range calendar replaces the preset pill bar -->
+            <div id="acctCalWrap" style="position:relative">
+              <button id="acctCalTrigger" class="acct-cal-trigger" onclick="acctCalToggle()">
+                <span class="acct-cal-icon">📅</span>
+                <span id="acctCalTriggerLabel">Last 90 Days</span>
+                <span class="acct-cal-chevron">▾</span>
+              </button>
+              <div id="acctCalPopup" class="acct-cal-popup">
+                <div class="acct-cal-header">
+                  <button class="acct-cal-nav" onclick="acctCalNav(-1)">◀</button>
+                  <div class="acct-cal-hdr-center">
+                    <button class="acct-cal-month-btn" id="acctCalMonthBtn" onclick="acctCalShowMonths()"></button>
+                    <button class="acct-cal-year-btn" id="acctCalYearBtn" onclick="acctCalShowYears()"></button>
+                  </div>
+                  <button class="acct-cal-nav" onclick="acctCalNav(1)">▶</button>
+                </div>
+                <div id="acctCalBody"></div>
+                <div class="acct-cal-presets">
+                  <button class="acct-cal-preset" data-preset="7" onclick="acctCalPreset(7)">7D</button>
+                  <button class="acct-cal-preset" data-preset="30" onclick="acctCalPreset(30)">30D</button>
+                  <button class="acct-cal-preset" data-preset="90" onclick="acctCalPreset(90)">90D</button>
+                  <button class="acct-cal-preset" data-preset="180" onclick="acctCalPreset(180)">6M</button>
+                  <button class="acct-cal-preset" data-preset="365" onclick="acctCalPreset(365)">1Y</button>
+                </div>
+              </div>
             </div>
           </div>
           <div class="acct-filter-row" style="margin-bottom:12px">
@@ -19410,12 +19501,24 @@ async function acctRenderSalesTab() {
   if (curSku) skuSel.value = curSku;
   skuSel.onchange = () => acctRenderSalesTab();
 
-  const range = parseInt(rangeSel.value) || 90;
+  // sales-calendar-v1: if a custom date range is set via the calendar picker,
+  // use it instead of the preset trailing-N-days integer. The `range` var is
+  // kept as a day count for backward compat with acctDashRender(rangeDays).
+  let range, _salesLoadArg;
+  if (typeof _acctSalesDateRange !== 'undefined' && _acctSalesDateRange && _acctSalesDateRange.start) {
+    _salesLoadArg = _acctSalesDateRange;
+    const d1 = new Date(_acctSalesDateRange.start + 'T12:00:00');
+    const d2 = new Date(_acctSalesDateRange.end + 'T12:00:00');
+    range = Math.max(1, Math.ceil((d2 - d1) / 86400000) + 1);
+  } else {
+    range = parseInt(rangeSel.value) || 90;
+    _salesLoadArg = range;
+  }
   const metric = metricSel.value || 'units';
   const grouping = document.getElementById('acctSalesGrouping')?.value || 'week';
   const chartType = document.getElementById('acctSalesChartType')?.value || 'bar';
   const productIds = products.map(p => p.id);
-  const sales = await acctLoadDailySales(productIds, range);
+  const sales = await acctLoadDailySales(productIds, _salesLoadArg);
   _acctCache.dailySales = sales;
 
   if (sales.length === 0) {
@@ -19730,6 +19833,416 @@ function acctDashSetRange(days) {
   acctRenderSalesTab();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// sales-calendar-v1 — full calendar date-range picker for the Sales tab.
+// Replaces the 7D/30D/90D/6M/1Y pill bar with a calendar that supports:
+//   • Day-level range selection (click start → click end)
+//   • Week row selection (click week number)
+//   • Month grid with range selection (click month name in header)
+//   • Year dropdown (click year in header)
+//   • Quick presets still available at the bottom
+// Pure additive — reads/writes _acctSalesDateRange then calls acctRenderSalesTab().
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _acctSalesDateRange = null; // {start:'YYYY-MM-DD', end:'YYYY-MM-DD'} or null
+let _acctSalesPresetDays = 90;  // tracks which preset is active (null = custom)
+
+const _acctCal = {
+  year: new Date().getFullYear(),
+  month: new Date().getMonth(),
+  mode: 'days',        // 'days' | 'months' | 'years'
+  startDate: null,     // ISO string 'YYYY-MM-DD'
+  endDate: null,       // ISO string
+  hoverDate: null,     // ISO string (preview while selecting)
+  monthStart: null,    // month index for month-range selection
+  selecting: false,    // waiting for second click
+  monthSelecting: false,
+  open: false
+};
+
+const _calMonthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const _calMonthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function _calIso(y,m,d) { return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+function _calToday() { const t=new Date(); return _calIso(t.getFullYear(),t.getMonth(),t.getDate()); }
+function _calParseDays(iso) { return new Date(iso+'T12:00:00').getTime(); }
+function _calAddDays(iso, n) { const d=new Date(iso+'T12:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+function _calFmtShort(iso) { const d=new Date(iso+'T12:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
+function _calFmtFull(iso) { const d=new Date(iso+'T12:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+
+// ── Toggle ──
+function acctCalToggle() {
+  _acctCal.open = !_acctCal.open;
+  const popup = document.getElementById('acctCalPopup');
+  const trigger = document.getElementById('acctCalTrigger');
+  if (!popup) return;
+  if (_acctCal.open) {
+    // Init view to the end date's month if we have a range, else current month
+    if (_acctCal.endDate) {
+      const d = new Date(_acctCal.endDate + 'T12:00:00');
+      _acctCal.year = d.getFullYear();
+      _acctCal.month = d.getMonth();
+    }
+    _acctCal.mode = 'days';
+    popup.classList.add('open');
+    trigger.classList.add('open');
+    acctCalRender();
+    // Close on outside click
+    setTimeout(() => document.addEventListener('click', _acctCalOutsideClick, true), 10);
+  } else {
+    popup.classList.remove('open');
+    trigger.classList.remove('open');
+    document.removeEventListener('click', _acctCalOutsideClick, true);
+  }
+}
+function _acctCalOutsideClick(e) {
+  const wrap = document.getElementById('acctCalWrap');
+  if (wrap && !wrap.contains(e.target)) acctCalToggle();
+}
+
+// ── Navigation ──
+function acctCalNav(delta) {
+  if (_acctCal.mode === 'years') {
+    _acctCal.year += delta * 9;
+    acctCalRender();
+    return;
+  }
+  if (_acctCal.mode === 'months') {
+    _acctCal.year += delta;
+    acctCalRender();
+    return;
+  }
+  _acctCal.month += delta;
+  if (_acctCal.month > 11) { _acctCal.month = 0; _acctCal.year++; }
+  if (_acctCal.month < 0) { _acctCal.month = 11; _acctCal.year--; }
+  acctCalRender();
+}
+function acctCalShowMonths() { _acctCal.mode = 'months'; _acctCal.monthSelecting = false; _acctCal.monthStart = null; acctCalRender(); }
+function acctCalShowYears() { _acctCal.mode = 'years'; acctCalRender(); }
+
+// ── Master render ──
+function acctCalRender() {
+  const monthBtn = document.getElementById('acctCalMonthBtn');
+  const yearBtn = document.getElementById('acctCalYearBtn');
+  if (monthBtn) monthBtn.textContent = _calMonthNames[_acctCal.month];
+  if (yearBtn) yearBtn.textContent = _acctCal.year;
+  const body = document.getElementById('acctCalBody');
+  if (!body) return;
+  if (_acctCal.mode === 'years') { acctCalRenderYears(body); return; }
+  if (_acctCal.mode === 'months') { acctCalRenderMonths(body); return; }
+  acctCalRenderDays(body);
+}
+
+// ── Day grid ──
+function acctCalRenderDays(body) {
+  const y = _acctCal.year, m = _acctCal.month;
+  const firstDay = new Date(y, m, 1);
+  const startDow = (firstDay.getDay() + 6) % 7; // Mon=0
+  const daysInMonth = new Date(y, m+1, 0).getDate();
+  const prevMonthDays = new Date(y, m, 0).getDate();
+  const today = _calToday();
+  const sDate = _acctCal.startDate;
+  const eDate = _acctCal.endDate;
+  const hDate = _acctCal.hoverDate;
+
+  // Build 6-row × 7-col grid of ISO dates
+  const cells = [];
+  for (let i = 0; i < 42; i++) {
+    const dayNum = i - startDow + 1;
+    let iso, outside = false;
+    if (dayNum < 1) {
+      const pd = prevMonthDays + dayNum;
+      const pm = m === 0 ? 11 : m - 1;
+      const py = m === 0 ? y - 1 : y;
+      iso = _calIso(py, pm, pd);
+      outside = true;
+    } else if (dayNum > daysInMonth) {
+      const nd = dayNum - daysInMonth;
+      const nm = m === 11 ? 0 : m + 1;
+      const ny = m === 11 ? y + 1 : y;
+      iso = _calIso(ny, nm, nd);
+      outside = true;
+    } else {
+      iso = _calIso(y, m, dayNum);
+    }
+    cells.push({ iso, dayNum: dayNum < 1 ? prevMonthDays + dayNum : (dayNum > daysInMonth ? dayNum - daysInMonth : dayNum), outside });
+  }
+
+  // Trim last row if all outside
+  const lastRowStart = 35;
+  if (cells[lastRowStart].outside && cells[lastRowStart+6].outside) cells.splice(lastRowStart, 7);
+
+  // Week numbers (ISO week)
+  function isoWeek(isoStr) {
+    const d = new Date(isoStr + 'T12:00:00');
+    const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+    const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+    return Math.ceil(((tmp - yearStart) / 86400000 + 1) / 7);
+  }
+
+  // Determine range for classes
+  function inRange(iso) {
+    if (!sDate) return false;
+    const end = eDate || ((_acctCal.selecting && hDate) ? hDate : sDate);
+    const a = sDate <= end ? sDate : end;
+    const b = sDate <= end ? end : sDate;
+    return iso >= a && iso <= b;
+  }
+  function isStart(iso) {
+    if (!sDate) return false;
+    const end = eDate || ((_acctCal.selecting && hDate) ? hDate : sDate);
+    return iso === (sDate <= end ? sDate : end);
+  }
+  function isEnd(iso) {
+    if (!sDate) return false;
+    const end = eDate || ((_acctCal.selecting && hDate) ? hDate : sDate);
+    return iso === (sDate <= end ? end : sDate);
+  }
+
+  // Render
+  let html = '<div class="acct-cal-weekdays"><div></div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div><div>Su</div></div>';
+  for (let r = 0; r < cells.length; r += 7) {
+    const weekMon = cells[r].iso;
+    const wk = isoWeek(weekMon);
+    html += '<div class="acct-cal-week-row">';
+    html += `<button class="acct-cal-wk-btn" onclick="event.stopPropagation();acctCalPickWeek('${weekMon}')" title="Select week ${wk}">W${wk}</button>`;
+    for (let c = 0; c < 7 && (r+c) < cells.length; c++) {
+      const cell = cells[r + c];
+      let cls = 'acct-cal-day';
+      if (cell.outside) cls += ' outside';
+      if (cell.iso === today) cls += ' today';
+      if (inRange(cell.iso) && isStart(cell.iso) && isEnd(cell.iso)) cls += ' range-single';
+      else {
+        if (isStart(cell.iso)) cls += ' range-start';
+        if (isEnd(cell.iso)) cls += ' range-end';
+        if (inRange(cell.iso) && !isStart(cell.iso) && !isEnd(cell.iso)) cls += ' in-range';
+      }
+      html += `<div class="${cls}" onclick="event.stopPropagation();acctCalPickDay('${cell.iso}')" onmouseenter="acctCalHover('${cell.iso}')">${cell.dayNum}</div>`;
+    }
+    html += '</div>';
+  }
+  body.innerHTML = html;
+}
+
+// ── Month grid ──
+function acctCalRenderMonths(body) {
+  const y = _acctCal.year;
+  const now = new Date();
+  const curMonth = (now.getFullYear() === y) ? now.getMonth() : -1;
+  // Determine which months are in current selection
+  const sDate = _acctCal.startDate;
+  const eDate = _acctCal.endDate;
+  const mStart = _acctCal.monthStart;
+  const hMonth = _acctCal.hoverDate; // reuse as month index during month selection
+
+  let html = '<div class="acct-cal-month-grid">';
+  for (let m = 0; m < 12; m++) {
+    const mFirst = _calIso(y, m, 1);
+    const mLast = _calIso(y, m, new Date(y, m+1, 0).getDate());
+    let cls = 'acct-cal-mgrid-btn';
+    if (m === curMonth) cls += ' current';
+    // Highlight if this month overlaps the selected range
+    if (sDate && eDate && mFirst <= eDate && mLast >= sDate) cls += ' in-range';
+    // Highlight during month-range selection
+    if (_acctCal.monthSelecting && mStart !== null) {
+      const hm = _acctCal._hoverMonth;
+      if (hm !== undefined && hm !== null) {
+        const a = Math.min(mStart, hm), b = Math.max(mStart, hm);
+        if (m >= a && m <= b) cls += ' in-range';
+      }
+      if (m === mStart) cls += ' selected';
+    }
+    html += `<button class="${cls}" onclick="event.stopPropagation();acctCalPickMonth(${m})" onmouseenter="acctCalHoverMonth(${m})">${_calMonthShort[m]}</button>`;
+  }
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+// ── Year grid ──
+function acctCalRenderYears(body) {
+  const baseYear = _acctCal.year - (_acctCal.year % 9);
+  const curYear = new Date().getFullYear();
+  let html = '<div class="acct-cal-year-grid">';
+  for (let i = -1; i < 11; i++) {
+    const yr = baseYear + i;
+    let cls = 'acct-cal-ygrid-btn';
+    if (yr === curYear) cls += ' current';
+    html += `<button class="${cls}" onclick="event.stopPropagation();acctCalPickYear(${yr})">${yr}</button>`;
+  }
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+// ── Click handlers ──
+function acctCalPickDay(iso) {
+  if (!_acctCal.selecting) {
+    // First click — set start
+    _acctCal.startDate = iso;
+    _acctCal.endDate = null;
+    _acctCal.selecting = true;
+    _acctCal.hoverDate = iso;
+    _acctSalesPresetDays = null;
+    acctCalRender();
+  } else {
+    // Second click — set end
+    let s = _acctCal.startDate, e = iso;
+    if (e < s) { const t = s; s = e; e = t; }
+    _acctCal.startDate = s;
+    _acctCal.endDate = e;
+    _acctCal.selecting = false;
+    _acctCal.hoverDate = null;
+    acctCalApplyRange(s, e);
+  }
+}
+
+function acctCalPickWeek(mondayIso) {
+  const sundayIso = _calAddDays(mondayIso, 6);
+  if (!_acctCal.selecting) {
+    // First week click
+    _acctCal.startDate = mondayIso;
+    _acctCal.endDate = null;
+    _acctCal.selecting = true;
+    _acctCal.hoverDate = sundayIso;
+    _acctSalesPresetDays = null;
+    acctCalRender();
+  } else {
+    // Second click — extend to this week's end
+    let s = _acctCal.startDate, e = sundayIso;
+    if (mondayIso < s) { s = mondayIso; e = _acctCal.endDate || _acctCal.startDate; /* keep original end */ const origEnd = _acctCal.hoverDate || _acctCal.startDate; e = _calAddDays(origEnd, 0); /* snap to week end */ const tmp = new Date(e+'T12:00:00'); const dow = (tmp.getDay()+6)%7; e = _calAddDays(e, 6-dow); }
+    if (e < s) { const t = s; s = e; e = t; }
+    // Snap start to Monday
+    const sd = new Date(s+'T12:00:00'); const sdow = (sd.getDay()+6)%7; s = _calAddDays(s, -sdow);
+    // Snap end to Sunday
+    const ed = new Date(e+'T12:00:00'); const edow = (ed.getDay()+6)%7; e = _calAddDays(e, 6-edow);
+    _acctCal.startDate = s;
+    _acctCal.endDate = e;
+    _acctCal.selecting = false;
+    _acctCal.hoverDate = null;
+    acctCalApplyRange(s, e);
+  }
+}
+
+function acctCalPickMonth(monthIdx) {
+  if (!_acctCal.monthSelecting) {
+    // First month click — select this month OR start range
+    _acctCal.monthStart = monthIdx;
+    _acctCal.monthSelecting = true;
+    _acctCal._hoverMonth = monthIdx;
+    acctCalRender();
+    // Auto-apply after a short delay if no second click (single month)
+    _acctCal._monthTimer = setTimeout(() => {
+      if (_acctCal.monthSelecting && _acctCal.monthStart === monthIdx) {
+        // Single month selected
+        const y = _acctCal.year;
+        const s = _calIso(y, monthIdx, 1);
+        const e = _calIso(y, monthIdx, new Date(y, monthIdx+1, 0).getDate());
+        _acctCal.monthSelecting = false;
+        _acctCal.monthStart = null;
+        _acctSalesPresetDays = null;
+        _acctCal.startDate = s;
+        _acctCal.endDate = e;
+        _acctCal.mode = 'days';
+        _acctCal.month = monthIdx;
+        acctCalApplyRange(s, e);
+      }
+    }, 1500);
+  } else {
+    // Second month click — range
+    clearTimeout(_acctCal._monthTimer);
+    const y = _acctCal.year;
+    const a = Math.min(_acctCal.monthStart, monthIdx);
+    const b = Math.max(_acctCal.monthStart, monthIdx);
+    const s = _calIso(y, a, 1);
+    const e = _calIso(y, b, new Date(y, b+1, 0).getDate());
+    _acctCal.monthSelecting = false;
+    _acctCal.monthStart = null;
+    _acctSalesPresetDays = null;
+    _acctCal.startDate = s;
+    _acctCal.endDate = e;
+    _acctCal.mode = 'days';
+    _acctCal.month = a;
+    acctCalApplyRange(s, e);
+  }
+}
+function acctCalHoverMonth(m) { _acctCal._hoverMonth = m; if (_acctCal.monthSelecting) acctCalRender(); }
+
+function acctCalPickYear(yr) {
+  _acctCal.year = yr;
+  _acctCal.mode = 'months';
+  acctCalRender();
+}
+
+function acctCalHover(iso) {
+  if (!_acctCal.selecting) return;
+  _acctCal.hoverDate = iso;
+  acctCalRender();
+}
+
+// ── Apply range → chart ──
+function acctCalApplyRange(start, end) {
+  _acctSalesDateRange = { start, end };
+  _acctSalesPresetDays = null;
+  _acctCal.startDate = start;
+  _acctCal.endDate = end;
+  acctCalUpdateTrigger();
+  acctCalUpdatePresetHighlight();
+  // Close calendar
+  const popup = document.getElementById('acctCalPopup');
+  const trigger = document.getElementById('acctCalTrigger');
+  if (popup) popup.classList.remove('open');
+  if (trigger) trigger.classList.remove('open');
+  _acctCal.open = false;
+  document.removeEventListener('click', _acctCalOutsideClick, true);
+  acctRenderSalesTab();
+}
+
+// ── Presets ──
+function acctCalPreset(days) {
+  _acctSalesDateRange = null;
+  _acctSalesPresetDays = days;
+  const today = _calToday();
+  const start = _calAddDays(today, -(days - 1));
+  _acctCal.startDate = start;
+  _acctCal.endDate = today;
+  _acctCal.selecting = false;
+  // Also set the hidden legacy select
+  const sel = document.getElementById('acctSalesRange');
+  if (sel) sel.value = String(days);
+  acctCalUpdateTrigger();
+  acctCalUpdatePresetHighlight();
+  // Close calendar
+  const popup = document.getElementById('acctCalPopup');
+  const trigger = document.getElementById('acctCalTrigger');
+  if (popup) popup.classList.remove('open');
+  if (trigger) trigger.classList.remove('open');
+  _acctCal.open = false;
+  document.removeEventListener('click', _acctCalOutsideClick, true);
+  acctRenderSalesTab();
+}
+
+function acctCalUpdateTrigger() {
+  const lbl = document.getElementById('acctCalTriggerLabel');
+  if (!lbl) return;
+  if (_acctSalesPresetDays) {
+    const map = { 7:'Last 7 Days', 30:'Last 30 Days', 90:'Last 90 Days', 180:'Last 6 Months', 365:'Last Year' };
+    lbl.textContent = map[_acctSalesPresetDays] || `Last ${_acctSalesPresetDays} Days`;
+  } else if (_acctSalesDateRange) {
+    const s = _calFmtShort(_acctSalesDateRange.start);
+    const eD = new Date(_acctSalesDateRange.end + 'T12:00:00');
+    const sD = new Date(_acctSalesDateRange.start + 'T12:00:00');
+    const sameYear = sD.getFullYear() === eD.getFullYear();
+    const e = sameYear ? _calFmtShort(_acctSalesDateRange.end) : _calFmtFull(_acctSalesDateRange.end);
+    lbl.textContent = `${s} – ${e}${sameYear ? ', ' + eD.getFullYear() : ''}`;
+  }
+}
+
+function acctCalUpdatePresetHighlight() {
+  document.querySelectorAll('.acct-cal-preset').forEach(b => {
+    b.classList.toggle('active', _acctSalesPresetDays && +b.dataset.preset === _acctSalesPresetDays);
+  });
+}
+
 function acctDashFmtMoney(n, showZero) {
   // Exact cents. No rounding, no K/M shorthand — accounting needs the full amount.
   n = Number(n||0);
@@ -19988,7 +20501,16 @@ async function acctDashRender(accountId, rangeSales, products, rangeDays, groupi
 
   // Range label under section title
   const rlbl = document.getElementById('acctDashRangeLabel');
-  if (rlbl) rlbl.textContent = `Last ${rangeDays} days · ${grouping} buckets`;
+  // sales-calendar-v1: show the custom date range when one is active
+  if (rlbl) {
+    if (typeof _acctSalesDateRange !== 'undefined' && _acctSalesDateRange && _acctSalesDateRange.start) {
+      const _s = new Date(_acctSalesDateRange.start+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+      const _e = new Date(_acctSalesDateRange.end+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+      rlbl.textContent = `${_s} – ${_e} · ${grouping} buckets`;
+    } else {
+      rlbl.textContent = `Last ${rangeDays} days · ${grouping} buckets`;
+    }
+  }
 
   // 9) Fee-stack donut (where money goes)
   const donutCanvas = document.getElementById('acctDashFeeDonut');
