@@ -15288,8 +15288,33 @@ function acctEditProduct(brand, key) {
 // SKU-Library modal (acctEditProduct) if no matching angora_products row
 // is found. Match priority: sku > asin > name. Pure additive — never
 // modifies _plCache or angora_products; only routes the click.
-function acctEditProductSmart(brand, key) {
+//
+// Made async so it can lazy-load _acctCache.products on demand. The Overview
+// tab never populates that cache (only Inventory/Sales/Economics do), so
+// without this preload the wrapper would always fall back to the legacy modal
+// when Edit was clicked from the Overview tab — which is the exact bug Alex
+// hit on 2026-05-04. Sentinel: editmodal-overview-fix-v1.
+async function acctEditProductSmart(brand, key) {
   try {
+    // ── Lazy-load product cache if empty (Overview-tab-first-click fix) ──
+    if (typeof _acctCache !== 'undefined'
+        && (!_acctCache.products || _acctCache.products.length === 0)
+        && brand) {
+      try {
+        const accountId = _acctCache.accountId
+          || (typeof acctEnsureAccount === 'function' ? await acctEnsureAccount(brand) : null);
+        if (accountId && typeof acctLoadProducts === 'function') {
+          const loaded = await acctLoadProducts(accountId);
+          _acctCache.products = loaded || [];
+          // Make sure subsequent renders see the loaded brand
+          _acctCache.brand = brand;
+          _acctCache.accountId = accountId;
+        }
+      } catch (preErr) {
+        console.warn('[editmodal-overview-fix-v1] preload products failed', preErr);
+      }
+    }
+
     const lib = (typeof _plCache !== 'undefined' && _plCache && _plCache[brand]) || {};
     const e = lib[key] || {};
     const norm = s => String(s || '').trim().toLowerCase();
