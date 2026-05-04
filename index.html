@@ -19709,7 +19709,11 @@ async function acctRenderSalesTab() {
   } catch(e) { notesDiv.innerHTML = ''; }
 
   // ─── COMMAND-CENTER DASHBOARD: KPI strip, reorder alerts, fee donut, top SKUs ───
-  try { await acctDashRender(accountId, filteredSales, products, range, grouping); } catch (e) { console.error('acctDashRender err', e); }
+  // sales-topsku-unfilt-v1: pass `sales` (the entire range, all SKUs) as a 6th
+  // optional arg so the Top SKUs card stays aggregated across every product
+  // even when the user clicks a single SKU. Chart + KPI strip above remain
+  // SKU-filtered. Backward-compatible default keeps the old signature working.
+  try { await acctDashRender(accountId, filteredSales, products, range, grouping, sales); } catch (e) { console.error('acctDashRender err', e); }
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -19813,7 +19817,10 @@ function acctDashDeltaBadge(cur, prev) {
   return `<span class="acct-kpi-delta ${cls}">${arrow} ${Math.abs(d*100).toFixed(1)}% vs prev</span>`;
 }
 
-async function acctDashRender(accountId, rangeSales, products, rangeDays, grouping) {
+async function acctDashRender(accountId, rangeSales, products, rangeDays, grouping, allRangeSales) {
+  // sales-topsku-unfilt-v1: `allRangeSales` is the unfiltered range (every
+  // SKU). Falls back to `rangeSales` so existing callers keep working.
+  const _topSkusSales = (allRangeSales && allRangeSales.length) ? allRangeSales : rangeSales;
   // 1) Aggregate in-range sales
   const totalUnits = rangeSales.reduce((a,s) => a + (s.units_sold||0), 0);
   const totalRev   = rangeSales.reduce((a,s) => a + parseFloat(s.revenue||0), 0);
@@ -20009,10 +20016,12 @@ async function acctDashRender(accountId, rangeSales, products, rangeDays, groupi
   }
 
   // 10) Top SKUs by revenue in range
+  // sales-topsku-unfilt-v1: aggregate from `_topSkusSales` (all SKUs in range)
+  // so picking a single SKU in the chart doesn't zero out everyone else here.
   const host = document.getElementById('acctDashTopSkus');
   if (host) {
     const byPid = {};
-    rangeSales.forEach(s => {
+    _topSkusSales.forEach(s => {
       byPid[s.product_id] = byPid[s.product_id] || { rev:0, units:0 };
       byPid[s.product_id].rev += parseFloat(s.revenue||0);
       byPid[s.product_id].units += (s.units_sold||0);
