@@ -19371,6 +19371,22 @@ function acctClearSalesDashboard() {
   if (chartWrap) chartWrap.style.display = 'none';
 }
 
+// sales-topsku-click-v1: companion to the clickable Top SKU rows. Takes a
+// product id (or '__all__'), drives the existing #acctSalesSku dropdown, and
+// re-renders the Sales tab so the chart + KPI cards filter to that SKU.
+// Clicking the active row toggles back to All SKUs. Pure additive.
+function acctSalesPickSku(productId) {
+  try {
+    const sel = document.getElementById('acctSalesSku');
+    if (!sel) return;
+    const target = (sel.value === productId) ? '__all__' : (productId || '__all__');
+    sel.value = target;
+    if (typeof acctRenderSalesTab === 'function') acctRenderSalesTab();
+  } catch (e) {
+    console.warn('[sales-topsku-click-v1] acctSalesPickSku failed', e);
+  }
+}
+
 async function acctRenderSalesTab() {
   const brand = _acctActiveBrand;
   const accountId = await acctEnsureAccount(brand);
@@ -20004,17 +20020,26 @@ async function acctDashRender(accountId, rangeSales, products, rangeDays, groupi
     const ranked = (products||[]).map(p => ({ p, rev: byPid[p.id]?.rev||0, units: byPid[p.id]?.units||0 }))
       .sort((a,b) => b.rev - a.rev).slice(0, 6);
     const maxRev = ranked[0]?.rev || 1;
+    // sales-topsku-click-v1: rows are clickable — selecting one drives the
+    // sku dropdown above the chart, then re-renders the Sales tab so the chart
+    // shows that product only. Clicking the active row again resets to All SKUs.
+    // Pure additive — no changes to chart code, dropdown logic, or layout.
+    const _activeSku = (document.getElementById('acctSalesSku')?.value) || '__all__';
     host.innerHTML = ranked.length === 0 ? '<div style="color:var(--muted);text-align:center;padding:20px;font-family:DM Mono,monospace;font-size:10px">No sales in range</div>' :
-      ranked.map((r,i) => `
-        <div style="display:flex;align-items:center;gap:10px">
+      ranked.map((r,i) => {
+        const isActive = String(_activeSku) === String(r.p.id);
+        const rowBg = isActive ? 'background:rgba(107,143,255,0.08);border:1px solid rgba(107,143,255,0.35);' : 'background:transparent;border:1px solid transparent;';
+        const titleColor = isActive ? 'color:var(--accent)' : 'color:var(--text)';
+        return `
+        <div onclick="acctSalesPickSku('${r.p.id}')" title="Click to chart this SKU \u2014 click again for All SKUs" style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;cursor:pointer;transition:all 0.15s;${rowBg}" onmouseover="if(this.dataset.active!=='1'){this.style.background='rgba(107,143,255,0.06)';this.style.borderColor='rgba(107,143,255,0.25)'}" onmouseout="if(this.dataset.active!=='1'){this.style.background='transparent';this.style.borderColor='transparent'}" data-active="${isActive ? '1' : '0'}">
           <div style="flex:0 0 18px;font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);font-weight:700">${i+1}</div>
           <div style="flex:1;min-width:0">
-            <div style="font-family:'Syne',sans-serif;font-size:11px;color:var(--text);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(r.p.name || r.p.sku || '').replace(/</g,'&lt;')}</div>
+            <div style="font-family:'Syne',sans-serif;font-size:11px;${titleColor};font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(r.p.name || r.p.sku || '').replace(/</g,'&lt;')}</div>
             <div style="height:4px;background:var(--surface2);border-radius:2px;margin-top:4px;overflow:hidden"><div style="width:${(r.rev/maxRev*100).toFixed(1)}%;height:100%;background:linear-gradient(90deg,var(--accent),#60a5fa);border-radius:2px"></div></div>
           </div>
           <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text);font-weight:700;text-align:right">${acctDashFmtMoney(r.rev, true)}<div style="font-size:9px;color:var(--muted);font-weight:400">${acctDashFmtInt(r.units)} u</div></div>
-        </div>
-      `).join('');
+        </div>`;
+      }).join('');
   }
 }
 
