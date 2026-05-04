@@ -21940,27 +21940,81 @@ function _fmtPct(v, { signed = false, dp = 1 } = {}) {
 function _cleanName(s) { return String(s||'').trim() || '—'; }
 
 // Current PSM name (from Garden login)
-function _acctCurrentPsm() {
-  // crpsku-psmname-v1: prefer the PSM name set on the account (acctPSM input,
-  // mirrored from Supabase psm_name). Fall back to the signed-in auth user's
-  // email handle, then a generic label.
+// crpsku-psmauth-v1: byline is ALWAYS the logged-in user creating the report.
+// Order: cached display name → live auth user (metadata.first/last → email handle) → 'Angora PSM'.
+// Does NOT use the account's acctPSM field — that field is the assigned PSM for the
+// account record, but the byline must reflect whoever is actually building the report.
+function _acctReadAuthUserSync() {
+  // Pull the current auth user out of the supabase v2 token stored in localStorage,
+  // so this works synchronously inside acctClientReportGatherData().
   try {
-    const fromInput = document.getElementById('acctPSM')?.value?.trim();
-    if (fromInput) return fromInput;
-  } catch(e) {}
-  try {
-    const u = window.angoraSupabase?.auth?.user?.() || null;
-    const email = u?.email || window._angoraUserEmail || '';
-    if (email) {
-      return email.split('@')[0].replace(/[._-]/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !/^sb-.*-auth-token$/.test(k)) continue;
+      const raw = localStorage.getItem(k);
+      if (!raw) continue;
+      let parsed;
+      try { parsed = JSON.parse(raw); } catch(e){ continue; }
+      const u = parsed?.user || parsed?.currentSession?.user || parsed?.session?.user;
+      if (u && (u.email || u.user_metadata)) return u;
     }
   } catch(e) {}
+  return null;
+}
+function _acctCurrentPsm() {
+  // 1) Cached display name (set asynchronously on tab render below).
+  try {
+    if (window._angoraUserName && String(window._angoraUserName).trim()) {
+      return String(window._angoraUserName).trim();
+    }
+  } catch(e) {}
+  // 2) Read directly from the persisted Supabase session.
+  try {
+    const u = _acctReadAuthUserSync();
+    if (u) {
+      const meta = u.user_metadata || {};
+      const first = String(meta.first_name || '').trim();
+      const last  = String(meta.last_name  || '').trim();
+      const full  = String(meta.full_name  || '').trim();
+      const display = (first || last) ? [first, last].filter(Boolean).join(' ').trim() : full;
+      if (display) return display;
+      const email = (u.email || window._angoraUserEmail || '').trim();
+      if (email) return email.split('@')[0].replace(/[._-]/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+  } catch(e) {}
+  // 3) Generic last resort.
   return 'Angora PSM';
+}
+
+// Populate window._angoraUserName from the live auth session so future syncs are instant.
+async function _acctRefreshCurrentUserName() {
+  try {
+    const sb = window.angoraSupabase;
+    if (!sb || !sb.auth || typeof sb.auth.getUser !== 'function') return;
+    const { data } = await sb.auth.getUser();
+    const u = data?.user; if (!u) return;
+    const meta = u.user_metadata || {};
+    const first = String(meta.first_name || '').trim();
+    const last  = String(meta.last_name  || '').trim();
+    const full  = String(meta.full_name  || '').trim();
+    let name = (first || last) ? [first, last].filter(Boolean).join(' ').trim() : full;
+    if (!name) {
+      const email = (u.email || '').trim();
+      if (email) name = email.split('@')[0].replace(/[._-]/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+    if (name) {
+      window._angoraUserName = name;
+      window._angoraUserEmail = u.email || window._angoraUserEmail || '';
+    }
+  } catch(e) {}
 }
 
 function acctRenderClientReportTab() {
   const root = document.getElementById('acctClientReportRoot');
   if (!root) return;
+  // crpsku-psmauth-v1: kick off auth-name refresh so the byline shows the
+  // logged-in user (not the account's assigned PSM, not a generic label).
+  try { _acctRefreshCurrentUserName(); } catch(e){}
   // Default period → current week/month
   if (!_acctClientRpt.weekStart) _acctClientRpt.weekStart = _ymd(_mondayOf(new Date()));
   if (!_acctClientRpt.month)     _acctClientRpt.month     = new Date().toISOString().slice(0,7);
