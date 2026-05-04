@@ -15266,7 +15266,7 @@ async function acctRenderProducts(brand) {
         </div>
         ${margin !== null ? `<div style="text-align:right"><div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:2px">Margin</div><div style="font-family:'DM Mono',monospace;font-size:11px;color:${marginColor}">${margin}%</div></div>` : ''}
         <button
-          onclick="acctEditProduct('${safeBrand}','${safeKey}')"
+          onclick="acctEditProductSmart('${safeBrand}','${safeKey}')"
           style="background:none;border:1px solid var(--border);border-radius:7px;color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:0.5px;padding:5px 11px;cursor:pointer;transition:border-color 0.15s,color 0.15s;white-space:nowrap;flex-shrink:0"
           onmouseover="this.style.borderColor='rgba(107,143,255,0.5)';this.style.color='var(--accent)'"
           onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'"
@@ -15281,6 +15281,32 @@ async function acctRenderProducts(brand) {
 function acctEditProduct(brand, key) {
   window._acctEditReturnBrand = brand; // remember who to refresh after save
   slEditProduct(brand, key);
+}
+
+// crpsku-editmodal-v1: wrapper that prefers the new FBA-aware modal
+// (acctOpenProductEdit by angora_products.id). Falls back to the legacy
+// SKU-Library modal (acctEditProduct) if no matching angora_products row
+// is found. Match priority: sku > asin > name. Pure additive — never
+// modifies _plCache or angora_products; only routes the click.
+function acctEditProductSmart(brand, key) {
+  try {
+    const lib = (typeof _plCache !== 'undefined' && _plCache && _plCache[brand]) || {};
+    const e = lib[key] || {};
+    const norm = s => String(s || '').trim().toLowerCase();
+    const products = (typeof _acctCache !== 'undefined' && _acctCache.products) || [];
+    let match = null;
+    if (e.sku)  match = products.find(p => p.sku  && norm(p.sku)  === norm(e.sku));
+    if (!match && e.asin) match = products.find(p => p.asin && norm(p.asin) === norm(e.asin));
+    if (!match && e.name) match = products.find(p => p.name && norm(p.name) === norm(e.name));
+    // The Economics-tab path passes p.id directly as `key`, so try the raw key too.
+    if (!match && key) match = products.find(p => String(p.id) === String(key));
+    if (match && match.id && typeof acctOpenProductEdit === 'function') {
+      acctOpenProductEdit(match.id);
+      return;
+    }
+  } catch(err) { console.warn('[crpsku-editmodal-v1] acctEditProductSmart fallback', err); }
+  // Fallback: legacy modal
+  acctEditProduct(brand, key);
 }
 
 // acctaddprod-bulkbackfill-v1: walk the legacy product_libraries blob for a
@@ -18918,12 +18944,7 @@ function acctOpenProductEdit(productId) {
         ${fld('prodRef','Referral Fee %', p.referral_fee_pct ?? 15, 'number', 'step="0.1" min="0" max="45"', 'Amazon category referral (default 15%)')}
         ${fld('prodFba','FBA Fee ($/unit)', p.fba_fee_manual ?? '', 'number', 'step="0.01" min="0"', 'Enter the FBA fulfillment fee per unit. Referral, margin, net profit auto-calc off this value.')}
         ${fld('prodLead','Lead Time (days)', p.lead_time_days ?? 60, 'number', 'step="1" min="1" max="365"', 'Days from PO to FBA inbound. Drives Reorder Point math on the Inventory tab. Default 60.')}
-        <div style="grid-column:1/-1;height:1px;background:var(--border);margin:4px 0"></div>
-        <div style="grid-column:1/-1;font-family:\\'DM Mono\\',monospace;font-size:9px;text-transform:uppercase;letter-spacing:2px;color:var(--accent);margin-bottom:-6px">Dimensions & Weight (for auto-FBA)</div>
-        ${fld('prodWeight','Weight (oz)', p.weight_oz ?? '', 'number', 'step="0.01" min="0"')}
-        ${fld('prodLen','Length (in)', p.length_in ?? '', 'number', 'step="0.01" min="0"')}
-        ${fld('prodWid','Width (in)', p.width_in ?? '', 'number', 'step="0.01" min="0"')}
-        ${fld('prodHgt','Height (in)', p.height_in ?? '', 'number', 'step="0.01" min="0"')}
+        <!-- crpsku-editmodal-v1: dimensions section removed; FBA fee is manual, dims not needed here. Save handler still tolerates missing dim inputs. -->
       </div>
       <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
         <div id="prodSaveMsg" style="font-family:'DM Mono',monospace;font-size:10px;color:#a0a2b0"></div>
@@ -18950,12 +18971,16 @@ async function acctSaveProductEdit(productId) {
     referral_fee_pct: numOrNull(v('prodRef')),
     fba_fee_manual:   numOrNull(v('prodFba')),
     lead_time_days:   (() => { const n = parseInt(v('prodLead')); return isNaN(n) ? null : Math.max(1, Math.min(365, n)); })(),
-    weight_oz: numOrNull(v('prodWeight')),
-    length_in: numOrNull(v('prodLen')),
-    width_in:  numOrNull(v('prodWid')),
-    height_in: numOrNull(v('prodHgt')),
     updated_at: new Date().toISOString(),
   };
+  // crpsku-editmodal-v1: only write dimension fields if their inputs are still
+  // present in the DOM. The dims section was removed from this modal; existing
+  // DB values must NOT be nulled out when those inputs aren't rendered.
+  const _dimMap = { prodWeight: 'weight_oz', prodLen: 'length_in', prodWid: 'width_in', prodHgt: 'height_in' };
+  for (const [inputId, col] of Object.entries(_dimMap)) {
+    const raw = v(inputId);
+    if (raw !== undefined) payload[col] = numOrNull(raw);
+  }
   const msg = document.getElementById('prodSaveMsg');
   if (msg) msg.textContent = 'Saving\u2026';
   // Smart retry: if Postgres complains about a SPECIFIC missing column, drop ONLY that
@@ -18988,10 +19013,53 @@ async function acctSaveProductEdit(productId) {
   // Update local cache so re-renders show new data
   const p = (_acctCache.products || []).find(x => x.id === productId);
   if (p) Object.assign(p, payload);
+  // crpsku-editmodal-v1: also mirror the saved fields into the legacy _plCache
+  // entry for this brand/product so the Profile-tab product list (which still
+  // reads from _plCache via plLoadAll) shows the new values immediately. We
+  // match by sku, then asin, then name. Best-effort; never throws.
+  try {
+    const brand = _acctActiveBrand;
+    if (brand && typeof _plCache !== 'undefined' && _plCache && _plCache[brand]) {
+      const norm = s => String(s || '').trim().toLowerCase();
+      const target = p || payload;
+      const matchKey = Object.keys(_plCache[brand]).find(k => {
+        const e = _plCache[brand][k];
+        if (target.sku  && norm(e.sku)  === norm(target.sku))  return true;
+        if (target.asin && norm(e.asin) === norm(target.asin)) return true;
+        if (target.name && norm(e.name) === norm(target.name)) return true;
+        return false;
+      });
+      if (matchKey) {
+        const e = _plCache[brand][matchKey];
+        if (payload.name     != null) e.name     = payload.name;
+        if (payload.sku      != null) e.sku      = payload.sku;
+        if (payload.asin     != null) e.asin     = payload.asin;
+        if (payload.category != null) e.category = payload.category;
+        if (payload.cogs     != null) e.cogs     = payload.cogs;
+        if (payload.price    != null) e.price    = payload.price;
+        // Persist async; we don't block the modal close on the network round-trip.
+        if (typeof plSaveAll === 'function') {
+          plSaveAll(_plCache).catch(err => console.warn('[crpsku-editmodal-v1] plSaveAll failed', err));
+        }
+      }
+    }
+  } catch(e) { console.warn('[crpsku-editmodal-v1] _plCache mirror failed', e); }
   setTimeout(() => {
     const m = document.getElementById('acctProdModal'); if (m) m.remove();
-    acctRenderInventoryTab();
-    if (typeof acctRenderEconomicsTab === 'function') acctRenderEconomicsTab();
+    // crpsku-editmodal-v1: refresh every surface that shows product data so
+    // the new values appear everywhere without a page reload.
+    try { if (typeof acctRenderInventoryTab    === 'function') acctRenderInventoryTab(); } catch(e){}
+    try { if (typeof acctRenderEconomicsTab    === 'function') acctRenderEconomicsTab(); } catch(e){}
+    try { if (typeof acctRenderEconProductsCard === 'function') acctRenderEconProductsCard(); } catch(e){}
+    try { if (typeof acctRenderProducts === 'function' && _acctActiveBrand) acctRenderProducts(_acctActiveBrand); } catch(e){}
+    try { if (typeof acctRenderSalesTab === 'function') acctRenderSalesTab(); } catch(e){}
+    try {
+      // If the Client Reports preview is mounted, re-render it too so Per-SKU
+      // P&L picks up the new FBA/COGS/Referral immediately.
+      if (typeof acctClientReportRender === 'function' && document.getElementById('acctClientReportPreview')) {
+        acctClientReportRender();
+      }
+    } catch(e){}
   }, 700);
 }
 
@@ -20535,7 +20603,7 @@ function acctRenderEconProductsCard() {
           <td style="text-align:right;font-variant-numeric:tabular-nums">$${cogs.toFixed(2)}</td>
           <td style="text-align:right;font-variant-numeric:tabular-nums;color:${mColor};font-weight:600">${margin.toFixed(1)}%</td>
           <td style="text-align:right">
-            <button onclick="acctEditProduct('${safeBrand}','${safeKey}')" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;padding:3px 9px;cursor:pointer;letter-spacing:0.5px;transition:all 0.15s" onmouseover="this.style.borderColor='rgba(107,143,255,0.4)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">Edit</button>
+            <button onclick="acctEditProductSmart('${safeBrand}','${safeKey}')" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;padding:3px 9px;cursor:pointer;letter-spacing:0.5px;transition:all 0.15s" onmouseover="this.style.borderColor='rgba(107,143,255,0.4)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">Edit</button>
           </td>
         </tr>`;
       }).join('');
