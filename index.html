@@ -21941,13 +21941,21 @@ function _cleanName(s) { return String(s||'').trim() || '—'; }
 
 // Current PSM name (from Garden login)
 function _acctCurrentPsm() {
+  // crpsku-psmname-v1: prefer the PSM name set on the account (acctPSM input,
+  // mirrored from Supabase psm_name). Fall back to the signed-in auth user's
+  // email handle, then a generic label.
+  try {
+    const fromInput = document.getElementById('acctPSM')?.value?.trim();
+    if (fromInput) return fromInput;
+  } catch(e) {}
   try {
     const u = window.angoraSupabase?.auth?.user?.() || null;
     const email = u?.email || window._angoraUserEmail || '';
-    if (!email) return 'Angora PSM';
-    const handle = email.split('@')[0].replace(/[._-]/g,' ').replace(/\b\w/g, c => c.toUpperCase());
-    return handle;
-  } catch(e) { return 'Angora PSM'; }
+    if (email) {
+      return email.split('@')[0].replace(/[._-]/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+  } catch(e) {}
+  return 'Angora PSM';
 }
 
 function acctRenderClientReportTab() {
@@ -22539,7 +22547,8 @@ function acctBuildClientReportHtml(d) {
   <!-- HEADER BAND -->
   <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid ${ink};padding-bottom:28px">
     <div style="display:flex;align-items:center;gap:16px">
-      <div style="width:44px;height:44px;border-radius:50%;background:${accent};display:flex;align-items:center;justify-content:center;color:#fff;font:700 20px/1 'Instrument Serif';letter-spacing:0.5px">A</div>
+      <!-- crpsku-logo-v1: real Angora logo restored in client report header -->
+      <img src="https://qzfsbqxldyvwxtotppku.supabase.co/storage/v1/object/public/pic/angora_black_logo.png" alt="Angora" style="height:34px;width:auto;object-fit:contain;display:block">
       <div>
         <div class="label-accent" style="margin-bottom:6px">Angora · Amazon Brand Management</div>
         <div style="font:600 13px/1.3 Inter;color:${ink};letter-spacing:0.2px">${d.brand}</div>
@@ -22774,7 +22783,8 @@ ${d.sections.forecast ? `  <!-- FORECAST -->
   <!-- FOOTER -->
   <div style="margin-top:60px;padding-top:24px;border-top:1px solid ${ink};display:flex;justify-content:space-between;align-items:center">
     <div style="display:flex;align-items:center;gap:12px">
-      <div style="width:24px;height:24px;border-radius:50%;background:${ink};color:${paper};display:flex;align-items:center;justify-content:center;font:700 11px 'Instrument Serif'">A</div>
+      <!-- crpsku-logo-v1: real Angora logo restored in client report footer -->
+      <img src="https://qzfsbqxldyvwxtotppku.supabase.co/storage/v1/object/public/pic/angora_black_logo.png" alt="Angora" style="height:18px;width:auto;object-fit:contain;display:block">
       <div class="label" style="color:${soft}">Angora · ${d.clientSafe ? 'Prepared for Partner Review' : 'Internal Angora Copy'}</div>
     </div>
     <div class="label" style="color:${soft}">Confidential · ${d.labelShort}</div>
