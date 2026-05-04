@@ -13497,7 +13497,7 @@ function slRenderProducts(lib, brand) {
       <td style="font-size:9px;text-transform:capitalize">${cat || '—'}</td>
       <td style="font-size:9px;color:var(--muted)">${p.savedAt || '—'}</td>
       <td><div class="sl-acts">
-        <button class="sl-act-btn" onclick="slEditProduct('${brand.replace(/'/g,"\'")}','${key}')">Edit</button>
+        <button class="sl-act-btn" onclick="acctEditProductSmart('${brand.replace(/'/g,"\'")}','${key}')">Edit</button>
         <button class="sl-act-btn del" onclick="slDeleteProduct('${brand.replace(/'/g,"\'")}','${key}')">Delete</button>
       </div></td>
     </tr>`;
