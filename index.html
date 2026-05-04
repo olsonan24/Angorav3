@@ -20006,7 +20006,7 @@ function acctCalRenderDays(body) {
     const weekMon = cells[r].iso;
     const wk = isoWeek(weekMon);
     html += '<div class="acct-cal-week-row">';
-    html += `<button class="acct-cal-wk-btn" onclick="event.stopPropagation();acctCalPickWeek('${weekMon}')" title="Select week ${wk}">W${wk}</button>`;
+    html += `<button class="acct-cal-wk-btn" onmousedown="event.stopPropagation();acctCalPickWeek('${weekMon}')" title="Select week ${wk}">W${wk}</button>`;
     for (let c = 0; c < 7 && (r+c) < cells.length; c++) {
       const cell = cells[r + c];
       let cls = 'acct-cal-day';
@@ -20018,7 +20018,7 @@ function acctCalRenderDays(body) {
         if (isEnd(cell.iso)) cls += ' range-end';
         if (inRange(cell.iso) && !isStart(cell.iso) && !isEnd(cell.iso)) cls += ' in-range';
       }
-      html += `<div class="${cls}" onclick="event.stopPropagation();acctCalPickDay('${cell.iso}')" onmouseenter="acctCalHover('${cell.iso}')">${cell.dayNum}</div>`;
+      html += `<div class="${cls}" onmousedown="event.stopPropagation();acctCalPickDay('${cell.iso}')" onmouseenter="acctCalHover('${cell.iso}')">${cell.dayNum}</div>`;
     }
     html += '</div>';
   }
@@ -20175,6 +20175,7 @@ function acctCalPickYear(yr) {
 
 function acctCalHover(iso) {
   if (!_acctCal.selecting) return;
+  if (_acctCal.hoverDate === iso) return; // sales-calendar-fix-v1: skip if unchanged — prevents DOM thrash that eats click events
   _acctCal.hoverDate = iso;
   acctCalRender();
 }
