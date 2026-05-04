@@ -21767,9 +21767,16 @@ const _acctClientRpt = {
   month: null,       // 'YYYY-MM'
   clientSafe: true,
   notes: '',
+  execSummary: '',   // crpsku-execedit-v1: PSM-editable Executive Summary (HTML or plain text). Empty -> auto-generate from data.
   html: '',          // cached latest rendered HTML
   sections: { ..._ACCT_CR_DEFAULT_SECTIONS },
 };
+
+// crpsku-execedit-v1: per-account+period exec summary persistence
+function _acctCrExecSummaryKey() {
+  const period = _acctClientRpt.mode === 'weekly' ? _acctClientRpt.weekStart : _acctClientRpt.month;
+  return `angoraClientRptExecSummary::${_acctCache.accountId||_acctActiveBrand}::${_acctClientRpt.mode}::${period}`;
+}
 
 function _acctCrSectionsKey() {
   const period = _acctClientRpt.mode === 'weekly' ? _acctClientRpt.weekStart : _acctClientRpt.month;
@@ -21794,6 +21801,114 @@ function _acctCrSaveSections() {
 function acctClientReportToggleSection(key, on) {
   _acctClientRpt.sections[key] = !!on;
   _acctCrSaveSections();
+}
+
+// ── crpsku-execedit-v1: PSM-editable Executive Summary helpers ──────────────
+// Build the auto-draft from current period numbers (mirrors the auto block in
+// acctBuildClientReportHtml so PSMs can seed the textarea, then edit/polish).
+function _acctCrAutoSummaryDraft() {
+  let d;
+  try { d = acctClientReportGatherData(); } catch (e) { return ''; }
+  if (!d) return '';
+  const periodWord = d.mode === 'weekly' ? 'this week' : 'this month';
+  const prevWord   = d.mode === 'weekly' ? 'last week' : 'the prior month';
+  const direction  = d.dRevPct > 2 ? 'climbed' : d.dRevPct < -2 ? 'softened' : 'held steady';
+  const fmt$ = v => '$' + Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmtInt = v => Number(v||0).toLocaleString('en-US');
+  const lines = [];
+  if (d.revenue > 0) {
+    lines.push(`Revenue ${direction} to ${fmt$(d.revenue)} ${periodWord}${isFinite(d.dRevPct) && d.prevRev > 0 ? `, a ${(d.dRevPct>=0?'+':'')+d.dRevPct.toFixed(1)}% move versus ${prevWord}` : ''}.`);
+  } else {
+    lines.push(`No recorded sales data for ${periodWord}. Once the ${d.mode === 'weekly' ? 'weekly' : 'monthly'} transaction report uploads, this section will populate with a full performance narrative.`);
+  }
+  if (d.units > 0)    lines.push(`${fmtInt(d.units)} units were fulfilled at an average order value of ${fmt$(d.aov)}.`);
+  if (d.adSpend > 0)  lines.push(`Advertising investment totaled ${fmt$(d.adSpend)} (TACoS ${d.tacos.toFixed(1)}%).`);
+  if (d.invAlerts && d.invAlerts.length) lines.push(`${d.invAlerts.length} SKU${d.invAlerts.length===1?'':'s'} need restock attention this cycle.`);
+  return lines.join('\n\n');
+}
+
+function acctClientRptSeedExecSummary() {
+  const ta = document.getElementById('acctClientRptExecSummary');
+  if (!ta) return;
+  const draft = _acctCrAutoSummaryDraft();
+  if (!draft) { alert('No data available yet for this period.'); return; }
+  if (ta.value.trim() && !confirm('Replace your current Executive Summary with a fresh auto-generated draft?')) return;
+  ta.value = draft;
+  _acctClientRpt.execSummary = draft;
+  try { localStorage.setItem(_acctCrExecSummaryKey(), draft); } catch(e){}
+  const status = document.getElementById('acctClientRptPolishStatus');
+  if (status) status.textContent = 'Draft generated from this period\u2019s numbers.';
+}
+
+async function acctClientRptPolishExecSummary() {
+  const ta = document.getElementById('acctClientRptExecSummary');
+  const btn = document.getElementById('acctClientRptPolishBtn');
+  const status = document.getElementById('acctClientRptPolishStatus');
+  if (!ta) return;
+  let draft = (ta.value || '').trim();
+  if (!draft) {
+    draft = _acctCrAutoSummaryDraft();
+    if (!draft) { alert('Type a draft first, or use ‘Generate Draft’ to seed it from the data.'); return; }
+    ta.value = draft;
+  }
+  // Build context from current data
+  let context = '';
+  try {
+    const d = acctClientReportGatherData();
+    if (d) {
+      const fmt$ = v => '$' + Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+      context = `Brand: ${d.brand}
+Period: ${d.labelLong} (${d.mode})
+Revenue: ${fmt$(d.revenue)} (${(d.dRevPct>=0?'+':'')+d.dRevPct.toFixed(1)}% vs prior period)
+Units: ${d.units}
+Net Profit: ${fmt$(d.netProfit)} (${d.netMargin.toFixed(1)}% margin)
+Ad Spend: ${fmt$(d.adSpend)} (TACoS ${d.tacos.toFixed(1)}%)
+Top SKUs: ${(d.topSkus||[]).slice(0,5).map(s => `${s.name} (${s.units}u, ${fmt$(s.revenue)})`).join('; ')}
+Inventory alerts: ${(d.invAlerts||[]).length} SKUs flagged`;
+    }
+  } catch(e) {}
+
+  const prompt = `You are a Partner Success Manager writing the Executive Summary for an Amazon brand performance report. Polish the PSM\u2019s draft into a tight, professional opener for the report.
+
+CONTEXT:
+${context}
+
+PSM\u2019s draft:
+"""${draft}"""
+
+Rewrite as 2\u20134 short paragraphs of clean, business-direct prose. No headers, no bullets, no fluff, no hedging. Lead with the headline trend, then the why, then the path forward. Keep specific numbers from the draft/context. Plain text only.`;
+
+  if (btn) { btn.disabled = true; btn.textContent = '✦ Polishing…'; }
+  if (status) status.textContent = 'Calling Claude…';
+  try {
+    const apiKey = (window._angoraApiKey || (typeof ANGORA_ANTHROPIC_API_KEY !== 'undefined' ? ANGORA_ANTHROPIC_API_KEY : '') || '').trim();
+    if (!apiKey) throw new Error('Anthropic API key is not configured.');
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 800,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    if (resp.status === 401) throw new Error('Invalid Anthropic API key.');
+    const data = await resp.json();
+    const text = (data.content||[]).map(b => b.text || '').join('').trim() || draft;
+    ta.value = text;
+    _acctClientRpt.execSummary = text;
+    try { localStorage.setItem(_acctCrExecSummaryKey(), text); } catch(e){}
+    if (status) status.textContent = '✓ Polished. Edit further or generate the report.';
+  } catch (err) {
+    if (status) status.textContent = 'Polish failed: ' + (err.message || err);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✦ Polish with AI'; }
+  }
 }
 
 function _ymd(d) {
@@ -21845,6 +21960,10 @@ function acctRenderClientReportTab() {
   // Load saved PSM notes (per account+period) from localStorage
   const notesKey = `angoraClientRptNotes::${_acctCache.accountId||_acctActiveBrand}::${_acctClientRpt.mode}::${_acctClientRpt.mode==='weekly'?_acctClientRpt.weekStart:_acctClientRpt.month}`;
   try { _acctClientRpt.notes = localStorage.getItem(notesKey) || _acctClientRpt.notes || ''; } catch(e){}
+
+  // crpsku-execedit-v1: load saved Executive Summary text (per account+period)
+  const execKey = _acctCrExecSummaryKey();
+  try { _acctClientRpt.execSummary = localStorage.getItem(execKey) || ''; } catch(e){ _acctClientRpt.execSummary = ''; }
 
   // crsections-v1: load saved section toggles for this account+period
   _acctCrLoadSections();
@@ -21916,7 +22035,32 @@ function acctRenderClientReportTab() {
         </button>
       </div>
 
+      <!-- crpsku-execedit-v1: PSM-editable Executive Summary with AI polish -->
       <div style="margin-top:22px;padding-top:22px;border-top:1px solid var(--border)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap">
+          <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)">Executive Summary</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" onclick="acctClientRptSeedExecSummary()" title="Fill the box with an auto-generated draft from this period's numbers"
+              style="padding:6px 12px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text);
+                     font-family:'DM Mono',monospace;font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;font-weight:600;cursor:pointer">
+              ↻ Generate Draft
+            </button>
+            <button type="button" id="acctClientRptPolishBtn" onclick="acctClientRptPolishExecSummary()" title="Polish the typed draft with AI"
+              style="padding:6px 12px;background:linear-gradient(135deg,#6b8fff,#a78bfa);border:none;border-radius:8px;color:#fff;
+                     font-family:'DM Mono',monospace;font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;cursor:pointer">
+              ✦ Polish with AI
+            </button>
+          </div>
+        </div>
+        <textarea id="acctClientRptExecSummary" placeholder="Type the executive summary you want to appear at the top of the report — or hit ‘Generate Draft’ to seed it from the period's numbers, then ‘Polish with AI’ to refine. Leave blank to use the auto-generated summary."
+          oninput="_acctClientRpt.execSummary=this.value;try{localStorage.setItem(_acctCrExecSummaryKey(),this.value)}catch(e){}"
+          style="width:100%;min-height:120px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;
+                 padding:12px 14px;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;line-height:1.6;resize:vertical"
+        >${(_acctClientRpt.execSummary||'').replace(/</g,'&lt;')}</textarea>
+        <div id="acctClientRptPolishStatus" style="margin-top:6px;font-family:'DM Mono',monospace;font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);min-height:14px"></div>
+      </div>
+
+      <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border)">
         <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">PSM Commentary</div>
         <textarea id="acctClientRptNotes" placeholder="Optional commentary — wins, issues, action items. Shown in the report as PSM notes."
           oninput="_acctClientRpt.notes=this.value;try{localStorage.setItem('${notesKey.replace(/'/g,"\\'")}',this.value)}catch(e){}"
@@ -22247,6 +22391,7 @@ function acctClientReportGatherData() {
     clientSafe,
     sections: { ..._acctClientRpt.sections },
     notes: _acctClientRpt.notes || '',
+    execSummary: _acctClientRpt.execSummary || '', // crpsku-execedit-v1
   };
 }
 
@@ -22413,11 +22558,23 @@ function acctBuildClientReportHtml(d) {
     <div style="margin-top:18px;font:400 16px/1.55 'Instrument Serif',Georgia,serif;color:${soft};font-style:italic;max-width:620px">${d.labelLong}${d.clientSafe ? ' \u00b7 Prepared for the Brand Partner.' : ' \u00b7 Internal Angora View.'}</div>
   </div>
 
-${d.sections.summary ? `  <!-- EXECUTIVE SUMMARY -->
+${d.sections.summary ? `  <!-- EXECUTIVE SUMMARY (crpsku-execedit-v1: PSM-editable, falls back to auto) -->
   <div class="section" style="margin-top:0">
     <div class="section-head"><div><div class="label">01</div><div class="h2">Executive Summary</div></div></div>
     <div style="font:400 14.5px/1.75 Inter;color:${ink};max-width:720px">
-      ${summaryLines.map(s => `<p style="margin:0 0 10px">${s}</p>`).join('')}
+      ${(() => {
+        const txt = (d.execSummary || '').trim();
+        if (!txt) {
+          return summaryLines.map(s => `<p style="margin:0 0 10px">${s}</p>`).join('');
+        }
+        // If text looks like HTML (from AI polish), render as-is. Otherwise paragraphify with HTML-escaping.
+        if (/<(p|strong|em|br|ul|ol|li|h\d)\b/i.test(txt)) {
+          return txt;
+        }
+        return txt.split(/\n{2,}/).map(p =>
+          `<p style="margin:0 0 10px">${p.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</p>`
+        ).join('');
+      })()}
     </div>
   </div>
 
