@@ -14890,10 +14890,18 @@ async function acctProfileOpen(brand, specialist) {
     const accountId = await acctEnsureAccount(brand);
     let row = null;
     if (sb && accountId) {
-      const { data, error } = await sb.from('angora_accounts')
-        .select('contact_name,contact_email,contact_phone,ops_specialist,psm_name,psm_email,account_since,audit_days,account_notes')
+      let { data: selData, error: selErr } = await sb.from('angora_accounts')
+        .select('contact_name,contact_email,contact_phone,ops_specialist,psm_name,psm_email,osm_name,osm_email,account_since,audit_days,account_notes')
         .eq('id', accountId).single();
-      if (!error) row = data;
+      // If osm columns don't exist yet, retry without them
+      if (selErr && selErr.message && (selErr.message.includes('osm_name') || selErr.message.includes('osm_email'))) {
+        const retry = await sb.from('angora_accounts')
+          .select('contact_name,contact_email,contact_phone,ops_specialist,psm_name,psm_email,account_since,audit_days,account_notes')
+          .eq('id', accountId).single();
+        selErr = retry.error;
+        selData = retry.data;
+      }
+      if (!selErr) row = selData;
     }
 
     // If Supabase row is empty AND we have legacy data, migrate it up ONCE.
@@ -14925,6 +14933,8 @@ async function acctProfileOpen(brand, specialist) {
     set('acctSpecialist',  eff.ops_specialist  || legacy.specialist  || specialist || '');
     set('acctPSM',         eff.psm_name        || legacy.psm         || '');
     set('acctPSMEmail',    eff.psm_email       || legacy.psmEmail    || '');
+    set('acctOSM',         eff.osm_name        || '');
+    set('acctOSMEmail',    eff.osm_email       || '');
     set('acctSince',       eff.account_since   || legacy.since       || '');
     set('acctNotes',       eff.account_notes   || legacy.notes       || '');
     const statusEl = document.getElementById('acctSaveStatus');
@@ -14973,6 +14983,8 @@ async function acctSaveNow() {
     specialist: document.getElementById('acctSpecialist').value.trim(),
     psm:        document.getElementById('acctPSM').value.trim(),
     psmEmail:   document.getElementById('acctPSMEmail').value.trim(),
+    osm:        document.getElementById('acctOSM')?.value.trim() || '',
+    osmEmail:   document.getElementById('acctOSMEmail')?.value.trim() || '',
     since:      document.getElementById('acctSince').value.trim(),
     notes:      document.getElementById('acctNotes').value.trim(),
     auditDays:  acctGetSelectedDays(),
@@ -14987,17 +14999,28 @@ async function acctSaveNow() {
     const sb = window.angoraSupabase;
     const accountId = await acctEnsureAccount(_acctActiveBrand);
     if (sb && accountId) {
-      const { error } = await sb.from('angora_accounts').update({
+      // Build update payload — include OSM fields only if columns exist
+      const updatePayload = {
         contact_name:   data.contactName || null,
         contact_email:  data.email       || null,
         contact_phone:  data.phone       || null,
         ops_specialist: data.specialist  || null,
         psm_name:       data.psm         || null,
         psm_email:      data.psmEmail    || null,
+        osm_name:       data.osm         || null,
+        osm_email:      data.osmEmail    || null,
         account_since:  data.since       || null,
         audit_days:     data.auditDays   || [],
         account_notes:  data.notes       || null,
-      }).eq('id', accountId);
+      };
+      let { error } = await sb.from('angora_accounts').update(updatePayload).eq('id', accountId);
+      // If osm columns don't exist yet, retry without them
+      if (error && error.message && (error.message.includes('osm_name') || error.message.includes('osm_email'))) {
+        delete updatePayload.osm_name;
+        delete updatePayload.osm_email;
+        const retry = await sb.from('angora_accounts').update(updatePayload).eq('id', accountId);
+        error = retry.error;
+      }
       if (error) console.warn('acctSaveNow: supabase update err', error);
     }
   } catch(e) { console.warn('acctSaveNow supabase err', e); }
@@ -18278,6 +18301,14 @@ window.calDeleteAudit = async function() {
             <input id="acctPSMEmail" type="email" placeholder="psm@agency.com" oninput="acctAutoSave()" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px;outline:none;transition:border-color 0.18s;box-sizing:border-box" onfocus="this.style.borderColor='rgba(107,143,255,0.5)'" onblur="this.style.borderColor='var(--border)'">
           </div>
           <div>
+            <label style="font-family:'DM Mono',monospace;font-size:8px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);display:block;margin-bottom:6px">Onboarding Success Manager</label>
+            <input id="acctOSM" type="text" placeholder="OSM name" oninput="acctAutoSave()" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px;outline:none;transition:border-color 0.18s;box-sizing:border-box" onfocus="this.style.borderColor='rgba(107,143,255,0.5)'" onblur="this.style.borderColor='var(--border)'">
+          </div>
+          <div>
+            <label style="font-family:'DM Mono',monospace;font-size:8px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);display:block;margin-bottom:6px">OSM Email</label>
+            <input id="acctOSMEmail" type="email" placeholder="osm@joinangora.com" oninput="acctAutoSave()" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px;outline:none;transition:border-color 0.18s;box-sizing:border-box" onfocus="this.style.borderColor='rgba(107,143,255,0.5)'" onblur="this.style.borderColor='var(--border)'">
+          </div>
+          <div>
             <label style="font-family:'DM Mono',monospace;font-size:8px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);display:block;margin-bottom:6px">Account Since</label>
             <input id="acctSince" type="text" placeholder="e.g. Jan 2023" oninput="acctAutoSave()" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px;outline:none;transition:border-color 0.18s;box-sizing:border-box" onfocus="this.style.borderColor='rgba(107,143,255,0.5)'" onblur="this.style.borderColor='var(--border)'">
           </div>
@@ -21413,8 +21444,15 @@ async function acctRenderMessagesTab() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// GLOBAL MESSAGES INBOX
+// GLOBAL MESSAGES INBOX  (permission-filtered)
 // ══════════════════════════════════════════════════════════════════════════
+
+// Product team – global message access to ALL accounts
+const INBOX_PRODUCT_TEAM_EMAILS = ['edgar@joinangora.com', 'corby@joinangora.com'];
+// Admins – also see all messages
+const INBOX_ADMIN_EMAILS = ['alex@joinangora.com', 'ben@joinangora.com', 'kenny@joinangora.com'];
+const INBOX_GLOBAL_ACCESS = [...INBOX_PRODUCT_TEAM_EMAILS, ...INBOX_ADMIN_EMAILS];
+
 let _inboxState = { threads: [], activeThreadId: null, accountsById: {}, msgChannel: null, inboxChannel: null };
 
 async function initInbox() {
@@ -21423,15 +21461,49 @@ async function initInbox() {
   body.innerHTML = '<div class="inbox-empty">Loading\u2026</div>';
   const sb = window.angoraSupabase; if (!sb) { body.innerHTML = '<div class="inbox-empty">Not signed in.</div>'; return; }
 
-  // Load all accounts (RLS restricts to ones the user can see)
-  const { data: accounts, error: accErr } = await sb.from('angora_accounts').select('id, name').eq('status', 'active').order('name');
+  // Get current user email for permission filtering
+  const { data: userRes } = await sb.auth.getUser();
+  const currentUserEmail = (userRes && userRes.user && userRes.user.email || '').toLowerCase().trim();
+  if (!currentUserEmail) { body.innerHTML = '<div class="inbox-empty">Not signed in.</div>'; return; }
+
+  const hasGlobalAccess = INBOX_GLOBAL_ACCESS.some(e => e.toLowerCase() === currentUserEmail);
+
+  // Load accounts with PSM + OSM email fields for permission filtering
+  let accounts = [];
+  // Try with osm_email first (column may not exist yet)
+  let selectFields = 'id, name, psm_email, osm_email';
+  let { data: acctData, error: accErr } = await sb.from('angora_accounts').select(selectFields).eq('status', 'active').order('name');
+  if (accErr && accErr.message && accErr.message.includes('osm_email')) {
+    // osm_email column doesn't exist yet – fall back
+    selectFields = 'id, name, psm_email';
+    const fallback = await sb.from('angora_accounts').select(selectFields).eq('status', 'active').order('name');
+    acctData = fallback.data;
+    accErr = fallback.error;
+  }
   if (accErr) { body.innerHTML = '<div class="inbox-empty">Error: ' + accErr.message + '</div>'; return; }
+  accounts = acctData || [];
+
+  // Filter accounts by messaging permissions (unless user has global access)
+  let permittedAccounts = accounts;
+  if (!hasGlobalAccess) {
+    permittedAccounts = accounts.filter(a => {
+      const psmMatch = a.psm_email && a.psm_email.toLowerCase().trim() === currentUserEmail;
+      const osmMatch = a.osm_email && a.osm_email.toLowerCase().trim() === currentUserEmail;
+      return psmMatch || osmMatch;
+    });
+  }
+
   const byId = {};
-  (accounts || []).forEach(a => { byId[a.id] = a; });
+  permittedAccounts.forEach(a => { byId[a.id] = a; });
   _inboxState.accountsById = byId;
 
   // Load threads joined with last message
-  const { data: threads } = await sb.from('angora_message_threads').select('id, account_id, subject, updated_at, status').in('account_id', Object.keys(byId)).order('updated_at', { ascending: false });
+  const accountIds = Object.keys(byId);
+  if (accountIds.length === 0) {
+    body.innerHTML = '<div class="inbox-empty">No messages for your accounts.<br><br><span style="font-size:9px">You\u2019ll see messages here once you\u2019re assigned as PSM or OSM for an account.</span></div>';
+    return;
+  }
+  const { data: threads } = await sb.from('angora_message_threads').select('id, account_id, subject, updated_at, status').in('account_id', accountIds).order('updated_at', { ascending: false });
   if (!threads || threads.length === 0) {
     body.innerHTML = '<div class="inbox-empty">No messages yet.<br><br><span style="font-size:9px">Start a conversation from any account\'s Messages tab.</span></div>';
     return;
