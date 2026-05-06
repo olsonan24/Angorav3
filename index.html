@@ -19090,6 +19090,7 @@ function acctOpenProductEdit(productId) {
         ${fld('prodPrice','Sell Price ($)', p.price || 0, 'number', 'step="0.01" min="0"')}
         ${fld('prodRef','Referral Fee %', p.referral_fee_pct ?? 15, 'number', 'step="0.1" min="0" max="45"', 'Amazon category referral (default 15%)')}
         ${fld('prodFba','FBA Fee ($/unit)', p.fba_fee_manual ?? '', 'number', 'step="0.01" min="0"', 'Enter the FBA fulfillment fee per unit. Referral, margin, net profit auto-calc off this value.')}
+        ${fld('prodFbFees','FB Fees ($/unit)', p.fb_fees ?? '', 'number', 'step="0.01" min="0"', 'Manual Facebook ad fees per unit. Leave blank if not applicable.')}
         ${fld('prodLead','Lead Time (days)', p.lead_time_days ?? 60, 'number', 'step="1" min="1" max="365"', 'Days from PO to FBA inbound. Drives Reorder Point math on the Inventory tab. Default 60.')}
         <!-- crpsku-editmodal-v1: dimensions section removed; FBA fee is manual, dims not needed here. Save handler still tolerates missing dim inputs. -->
       </div>
@@ -19117,6 +19118,7 @@ async function acctSaveProductEdit(productId) {
     price:   numOrNull(v('prodPrice')),
     referral_fee_pct: numOrNull(v('prodRef')),
     fba_fee_manual:   numOrNull(v('prodFba')),
+    fb_fees:          numOrNull(v('prodFbFees')),
     lead_time_days:   (() => { const n = parseInt(v('prodLead')); return isNaN(n) ? null : Math.max(1, Math.min(365, n)); })(),
     updated_at: new Date().toISOString(),
   };
@@ -19134,7 +19136,7 @@ async function acctSaveProductEdit(productId) {
   // column and retry. The previous fallback dropped fba_fee_manual + referral_fee_pct +
   // lead_time_days as a group, which silently dropped FBA Fee whenever ANY of the three
   // were missing. Sentinel: smartFallback.
-  const OPTIONAL_COLS = ['fba_fee_manual', 'referral_fee_pct', 'lead_time_days'];
+  const OPTIONAL_COLS = ['fba_fee_manual', 'referral_fee_pct', 'lead_time_days', 'fb_fees'];
   let droppedCols = [];
   let lastError = null;
   for (let attempt = 0; attempt < 4; attempt++) {
