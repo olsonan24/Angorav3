@@ -7732,10 +7732,10 @@ async function wkrRenderLibrary() {
   if (!gridEl) return;
 
   const totalProducts = brands.reduce((s, b) => s + Object.keys(lib[b]).length, 0);
-  if (subtitle) subtitle.textContent = `${brands.length} brands · ${totalProducts.toLocaleString()} products`;
+  if (subtitle) subtitle.textContent = `${brands.length} stores · ${totalProducts.toLocaleString()} products`;
 
   if (brands.length === 0) {
-    gridEl.innerHTML = '<div style="color:var(--muted);font-size:10px;font-style:italic;grid-column:1/-1;padding:8px 0">No brands yet — click <strong style="color:var(--accent)">+ Add Product</strong> to get started</div>';
+    gridEl.innerHTML = '<div style="color:var(--muted);font-size:10px;font-style:italic;grid-column:1/-1;padding:8px 0">No stores yet — click <strong style="color:var(--accent)">+ Add Product</strong> to get started</div>';
     return;
   }
 
@@ -8050,7 +8050,7 @@ async function wkrSaveProductForm() {
   const btn = document.getElementById('wkrSaveProductBtn');
   const brand = (document.getElementById('plf_brand')?.value || '').trim();
   const name  = (document.getElementById('plf_name')?.value || '').trim();
-  if (!brand) { alert('Enter a brand name.'); return; }
+  if (!brand) { alert('Enter a store name.'); return; }
   if (!name)  { alert('Enter a product name.'); return; }
 
   const g = id => document.getElementById('plf_' + id);
@@ -13485,7 +13485,7 @@ async function slRender() {
   if (!grid) return;
 
   const totalP = brands.reduce((s, b) => s + Object.keys(lib[b]).length, 0);
-  if (sub) sub.textContent = brands.length + ' brand' + (brands.length !== 1 ? 's' : '') + ' · ' + totalP + ' product' + (totalP !== 1 ? 's' : '');
+  if (sub) sub.textContent = brands.length + ' store' + (brands.length !== 1 ? 's' : '') + ' · ' + totalP + ' product' + (totalP !== 1 ? 's' : '');
 
   if (brands.length === 0) {
     grid.innerHTML = '';
@@ -13636,7 +13636,7 @@ function slCloseModal() {
 async function slSaveProduct() {
   const brand = document.getElementById('sl_brand').value.trim();
   const name  = document.getElementById('sl_name').value.trim();
-  if (!brand) { alert('Enter a brand name.'); return; }
+  if (!brand) { alert('Enter a store name.'); return; }
   if (!name)  { alert('Enter a product name.'); return; }
 
   const g  = id => document.getElementById('sl_' + id);
@@ -17656,7 +17656,7 @@ window.calDeleteAudit = async function() {
     <div class="sl-modal-title" id="slModalTitle">Add Product</div>
     <div class="sl-row2">
       <div class="sl-field">
-        <div class="sl-lbl">Brand</div>
+        <div class="sl-lbl">Store Name</div>
         <input class="sl-inp" id="sl_brand" placeholder="e.g. Cal &amp; Rye" list="slBrandList">
         <datalist id="slBrandList"></datalist>
       </div>
@@ -17812,7 +17812,7 @@ window.calDeleteAudit = async function() {
       <div style="overflow-x:auto;max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:10px">
         <table class="sl-tbl" id="slBulkPreviewTable">
           <thead><tr>
-            <th>Brand</th><th>Name</th><th>ASIN</th><th>Price</th><th>COGS</th><th>Ship</th><th>L×W×H</th><th>Oz</th><th>Status</th>
+            <th>Store</th><th>Name</th><th>ASIN</th><th>Price</th><th>COGS</th><th>Ship</th><th>L×W×H</th><th>Oz</th><th>Status</th>
           </tr></thead>
           <tbody id="slBulkPreviewBody"></tbody>
         </table>
@@ -19090,7 +19090,6 @@ function acctOpenProductEdit(productId) {
         ${fld('prodPrice','Sell Price ($)', p.price || 0, 'number', 'step="0.01" min="0"')}
         ${fld('prodRef','Referral Fee %', p.referral_fee_pct ?? 15, 'number', 'step="0.1" min="0" max="45"', 'Amazon category referral (default 15%)')}
         ${fld('prodFba','FBA Fee ($/unit)', p.fba_fee_manual ?? '', 'number', 'step="0.01" min="0"', 'Enter the FBA fulfillment fee per unit. Referral, margin, net profit auto-calc off this value.')}
-        ${fld('prodFbFees','FB Fees ($/unit)', p.fb_fees ?? '', 'number', 'step="0.01" min="0"', 'Manual Facebook ad fees per unit. Leave blank if not applicable.')}
         ${fld('prodLead','Lead Time (days)', p.lead_time_days ?? 60, 'number', 'step="1" min="1" max="365"', 'Days from PO to FBA inbound. Drives Reorder Point math on the Inventory tab. Default 60.')}
         <!-- crpsku-editmodal-v1: dimensions section removed; FBA fee is manual, dims not needed here. Save handler still tolerates missing dim inputs. -->
       </div>
@@ -19118,7 +19117,6 @@ async function acctSaveProductEdit(productId) {
     price:   numOrNull(v('prodPrice')),
     referral_fee_pct: numOrNull(v('prodRef')),
     fba_fee_manual:   numOrNull(v('prodFba')),
-    fb_fees:          numOrNull(v('prodFbFees')),
     lead_time_days:   (() => { const n = parseInt(v('prodLead')); return isNaN(n) ? null : Math.max(1, Math.min(365, n)); })(),
     updated_at: new Date().toISOString(),
   };
@@ -19136,7 +19134,7 @@ async function acctSaveProductEdit(productId) {
   // column and retry. The previous fallback dropped fba_fee_manual + referral_fee_pct +
   // lead_time_days as a group, which silently dropped FBA Fee whenever ANY of the three
   // were missing. Sentinel: smartFallback.
-  const OPTIONAL_COLS = ['fba_fee_manual', 'referral_fee_pct', 'lead_time_days', 'fb_fees'];
+  const OPTIONAL_COLS = ['fba_fee_manual', 'referral_fee_pct', 'lead_time_days'];
   let droppedCols = [];
   let lastError = null;
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -23164,12 +23162,20 @@ function acctClientReportGatherData() {
     };
   }).sort((a,b) => b.netRev - a.netRev);
 
+  // Reconcile headline Net Profit with Per-SKU P&L total so they never diverge.
+  // The per-SKU P&L uses per-unit FBA fees, referral %, COGS, P&P, ads, and
+  // Angora 5% — this is the authoritative breakdown. Use its sum as the headline.
+  const reconciledNet = perSkuPnl.reduce((s, r) => s + r.net, 0);
+  const useReconciled = perSkuPnl.length > 0;
+  const finalNetProfit = useReconciled ? reconciledNet : netProfit;
+  const finalNetMargin = revenue > 0 ? (finalNetProfit / revenue) * 100 : 0;
+
   return {
     brand: _acctCache.brand || _acctActiveBrand || '—',
     psm: _acctCurrentPsm(),
     mode, labelLong, labelShort, periodStart, periodEnd, daysInPeriod,
     revenue, units, adSpend, amazonFees, cogs, rptStorage, rptPlacement, rptAged,
-    angoraFee, netProfit, netMargin, aov, tacos,
+    angoraFee, netProfit: finalNetProfit, netMargin: finalNetMargin, aov, tacos,
     dRevPct, dUnitsPct, dAdsPct, prevRev, prevUnits, prevAds,
     days, topSkus, invAlerts, forecastRev, forecastUnits,
     productsList,
