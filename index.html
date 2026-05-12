@@ -15033,6 +15033,81 @@ async function acctSaveNow() {
 }
 
 
+// ── Account Name Inline Edit ─────────────────────────────────
+let _acctNameEditOriginal = '';
+
+function acctStartNameEdit() {
+  const nameEl  = document.getElementById('acctProfileName');
+  const inputEl = document.getElementById('acctProfileNameInput');
+  if (!nameEl || !inputEl) return;
+  _acctNameEditOriginal = nameEl.textContent.trim();
+  inputEl.value = _acctNameEditOriginal;
+  nameEl.style.display  = 'none';
+  inputEl.style.display = 'block';
+  inputEl.focus();
+  inputEl.select();
+}
+
+function acctCancelNameEdit() {
+  const nameEl  = document.getElementById('acctProfileName');
+  const inputEl = document.getElementById('acctProfileNameInput');
+  if (!nameEl || !inputEl) return;
+  inputEl.style.display = 'none';
+  nameEl.style.display  = 'block';
+}
+
+async function acctFinishNameEdit() {
+  const nameEl  = document.getElementById('acctProfileName');
+  const inputEl = document.getElementById('acctProfileNameInput');
+  if (!nameEl || !inputEl) return;
+  const newName = inputEl.value.trim();
+  inputEl.style.display = 'none';
+  nameEl.style.display  = 'block';
+
+  // If empty or unchanged, revert
+  if (!newName || newName === _acctNameEditOriginal) {
+    nameEl.textContent = _acctNameEditOriginal;
+    return;
+  }
+
+  // Optimistically update the header
+  nameEl.textContent = newName;
+
+  const sb = window.angoraSupabase;
+  const accountId = _acctCache.accountId;
+  if (!sb || !accountId) { console.warn('acctFinishNameEdit: no supabase or accountId'); return; }
+
+  try {
+    // 1. Update angora_accounts.name in Supabase
+    const { error } = await sb.from('angora_accounts').update({ name: newName }).eq('id', accountId);
+    if (error) { console.error('Rename DB error:', error); nameEl.textContent = _acctNameEditOriginal; alert('Failed to rename account: ' + error.message); return; }
+
+    // 2. Rename the key in the product library so the account list stays in sync
+    try {
+      const lib = await plLoadAll(true);
+      if (lib[_acctNameEditOriginal]) {
+        lib[newName] = lib[_acctNameEditOriginal];
+        delete lib[_acctNameEditOriginal];
+        await plSaveAll(lib);
+      }
+    } catch(e) { console.warn('Rename product library key warning:', e); }
+
+    // 3. Update in-memory references
+    _acctActiveBrand = newName;
+    _acctCache.brand = newName;
+
+    // 4. Flash save indicator
+    const el = document.getElementById('acctSaveStatus');
+    if (el) { el.style.opacity = '1'; setTimeout(() => { el.style.opacity = '0'; }, 2000); }
+
+    console.log('Account renamed:', _acctNameEditOriginal, '→', newName);
+  } catch(e) {
+    console.error('acctFinishNameEdit error:', e);
+    nameEl.textContent = _acctNameEditOriginal;
+    alert('Rename failed — see console for details.');
+  }
+}
+
 // ── Notes Log ────────────────────────────────────────────────
 async function acctLoadNotesLog() {
   try {
@@ -18245,8 +18320,9 @@ window.calDeleteAudit = async function() {
       <div style="display:flex;align-items:center;gap:12px">
         <div id="acctProfileAccentDot" style="width:10px;height:10px;border-radius:50%;background:var(--accent);flex-shrink:0;box-shadow:0 0 10px var(--accent)"></div>
         <div>
-          <div id="acctProfileName" style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--text)">—</div>
-          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:2px;margin-top:2px">Account Profile</div>
+          <div id="acctProfileName" onclick="acctStartNameEdit()" title="Click to rename" style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--text);cursor:pointer;border-bottom:1px dashed transparent;transition:border-color 0.2s" onmouseover="this.style.borderColor='rgba(107,143,255,0.4)'" onmouseout="this.style.borderColor='transparent'">—</div>
+          <input id="acctProfileNameInput" type="text" style="display:none;font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--text);background:var(--surface2);border:1px solid rgba(107,143,255,0.5);border-radius:6px;padding:2px 8px;outline:none;width:260px;box-sizing:border-box" onblur="acctFinishNameEdit()" onkeydown="if(event.key==='Enter'){this.blur()}if(event.key==='Escape'){acctCancelNameEdit()}">
+          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:2px;margin-top:2px">Account Profile · <span style="opacity:0.5;cursor:pointer" onclick="acctStartNameEdit()">✎ click name to edit</span></div>
         </div>
       </div>
       <button onclick="acctProfileClose()" style="background:none;border:1px solid var(--border);border-radius:9px;color:var(--muted);padding:7px 14px;font-family:'DM Mono',monospace;font-size:9px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all 0.15s" onmouseover="this.style.borderColor='rgba(107,143,255,0.4)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">✕ Close</button>
