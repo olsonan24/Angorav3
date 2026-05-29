@@ -21592,6 +21592,14 @@ async function acctRenderMessagesTab() {
   let thread = threads.find(t => parseDeptFromSubject(t.subject) === requestedDept) || null;
   let threadId = thread ? thread.id : null;
   if (!threadId) {
+    _acctCache.threadId = null;
+    _acctCache.messages = [];
+    _acctCache.msgSeenKeys = new Set();
+    if (list) list.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (!threadId) {
     const { data: userRes } = await sb.auth.getUser();
     const userId = userRes && userRes.user ? userRes.user.id : null;
     const { data: created } = await sb.from('angora_message_threads').insert({ account_id: accountId, subject: `${brand} — Partner chat`, created_by: userId }).select('id, subject').single();
@@ -21966,7 +21974,22 @@ async function acctSendMessage() {
   const sb = window.angoraSupabase; if (!sb) return;
   const { data: userRes } = await sb.auth.getUser();
   const userId = userRes && userRes.user ? userRes.user.id : null;
-  const threadId = _acctCache.threadId; if (!threadId) return;
+  let threadId = _acctCache.threadId;
+  if (!threadId) {
+    const brand = _acctActiveBrand || '';
+    const accountId = await acctEnsureAccount(brand);
+    const deptSel = document.getElementById('acctMsgDept');
+    const dept = (deptSel && MSG_DEPARTMENTS.includes(deptSel.value)) ? deptSel.value : 'general';
+    const { data: created, error: threadError } = await sb.from('angora_message_threads')
+      .insert({ account_id: accountId, subject: buildSubjectWithDept(dept, brand), created_by: userId })
+      .select('id, subject')
+      .single();
+    if (threadError) return alert('Could not start message thread: ' + threadError.message);
+    threadId = created?.id;
+    _acctCache.threadId = threadId;
+    if (!threadId) return;
+    startAcctMsgPolling(threadId);
+  }
   const tempMsg = { thread_id: threadId, sender_type: 'garden', content, created_at: new Date().toISOString() };
   acctAppendMessage(tempMsg);
   _acctCache.msgPendingLocal = _acctCache.msgPendingLocal || [];
