@@ -21541,6 +21541,12 @@ function acctAppendMessage(m) {
   if (!_acctCache.msgSeenKeys) _acctCache.msgSeenKeys = new Set();
   const key = acctMsgKey(m);
   if (_acctCache.msgSeenKeys.has(key)) return;
+  const pendingIdx = (_acctCache.msgPendingLocal || []).findIndex(p => p.threadId === m.thread_id && p.sender_type === m.sender_type && p.content === m.content && (Date.now() - p.at) < 60000);
+  if (pendingIdx >= 0) {
+    _acctCache.msgPendingLocal.splice(pendingIdx, 1);
+    _acctCache.msgSeenKeys.add(key);
+    return;
+  }
   _acctCache.msgSeenKeys.add(key);
   _acctCache.messages = _acctCache.messages || [];
   _acctCache.messages.push(m);
@@ -21557,7 +21563,7 @@ function startAcctMsgPolling(threadId) {
   async function pollAcctMessages() {
     if (_acctCache.threadId !== threadId) return;
     try {
-      const res = await inboxQueryWithTimeout(sb.from('angora_messages').select('id, thread_id, sender_id, sender_type, content, created_at').eq('thread_id', threadId).order('created_at', { ascending: false }).limit(25), 6000);
+      const res = await inboxQueryWithTimeout(inboxRecentMessagesQuery(sb, threadId, INBOX_MSG_LATEST_LIMIT), 6000);
       const msgs = (res?.data || []).slice().sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
       msgs.forEach(m => { if (!_acctCache.msgSeenKeys || !_acctCache.msgSeenKeys.has(acctMsgKey(m))) acctAppendMessage(m); });
     } catch(e) { console.warn('account messages poll skipped', e); }
@@ -21593,7 +21599,7 @@ async function acctRenderMessagesTab() {
   if (!threadId) return;
   let msgs = [];
   try {
-    const res = await inboxQueryWithTimeout(sb.from('angora_messages').select('id, thread_id, sender_id, sender_type, content, created_at').eq('thread_id', threadId).limit(200), 10000);
+    const res = await inboxQueryWithTimeout(inboxRecentMessagesQuery(sb, threadId, INBOX_MSG_HISTORY_LIMIT), 6000);
     msgs = (res?.data || []).slice().sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
   } catch(e) { console.warn('account initial messages skipped', e); }
   _acctCache.messages = msgs || [];
@@ -21627,6 +21633,9 @@ const INBOX_ADMIN_EMAILS = ['alex@joinangora.com', 'ben@joinangora.com', 'kenny@
 const INBOX_GLOBAL_ACCESS = [...INBOX_PRODUCT_TEAM_EMAILS, ...INBOX_ADMIN_EMAILS];
 
 let _inboxState = { threads: [], activeThreadId: null, accountsById: {}, msgChannel: null, inboxChannel: null, activePollTimer: null, inboxPollTimer: null, seenMsgKeys: new Set(), pendingLocal: [] };
+const INBOX_MSG_HISTORY_LIMIT = 100;
+const INBOX_MSG_LATEST_LIMIT = 25;
+let _inboxThreadReloadTimer = null;
 
 function inboxMsgKey(m) {
   return m?.id || `${m?.thread_id || _inboxState.activeThreadId || 'thread'}-${m?.created_at || ''}-${m?.sender_type || ''}-${(m?.content || '').slice(0, 80)}`;
@@ -21636,6 +21645,29 @@ function inboxQueryWithTimeout(query, ms = 8000) {
     const timer = setTimeout(() => reject(new Error('timeout')), ms);
     query.then((res) => { clearTimeout(timer); resolve(res); }, (err) => { clearTimeout(timer); reject(err); });
   });
+}
+function inboxRecentMessagesQuery(sb, threadId, limit = INBOX_MSG_LATEST_LIMIT) {
+  return sb.from('angora_messages')
+    .select('id, thread_id, sender_id, sender_type, content, created_at')
+    .eq('thread_id', threadId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+}
+function inboxUpdateThreadPreview(m) {
+  if (!m || !m.thread_id) return false;
+  const thr = _inboxState.threads.find(t => t.id === m.thread_id);
+  if (!thr) return false;
+  thr.lastMsg = { content: m.content, sender_type: m.sender_type, created_at: m.created_at, id: m.id, thread_id: m.thread_id };
+  thr.updated_at = m.created_at;
+  _inboxState.threads.sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at));
+  return true;
+}
+function scheduleInboxThreadReload() {
+  if (_inboxThreadReloadTimer) return;
+  _inboxThreadReloadTimer = setTimeout(async () => {
+    _inboxThreadReloadTimer = null;
+    try { await initInbox(); } catch(e) { console.warn('inbox thread reload skipped', e); }
+  }, 800);
 }
 function inboxRememberMessages(msgs) { (msgs || []).forEach(m => _inboxState.seenMsgKeys.add(inboxMsgKey(m))); }
 
@@ -21736,7 +21768,7 @@ async function initInbox() {
   }
   // Fetch last message for each thread in parallel
   const lastMsgs = await Promise.all(threads.map(t =>
-    sb.from('angora_messages').select('content, sender_type, created_at').eq('thread_id', t.id).order('created_at', { ascending: false }).limit(1).then(r => r.data && r.data[0])
+    inboxRecentMessagesQuery(sb, t.id, 1).then(r => r.data && r.data[0]).catch(() => null)
   ));
   _inboxState.threads = threads.map((t, i) => ({ ...t, lastMsg: lastMsgs[i] || null, account: byId[t.account_id] }));
 
@@ -21749,7 +21781,7 @@ async function initInbox() {
     _inboxState.inboxChannel = sb.channel('inbox-global').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'angora_messages' }, (payload) => {
       // Refresh just the affected thread
       const m = payload.new;
-      applyInboxIncomingMessage(m, true);
+      if (!applyInboxIncomingMessage(m, true)) scheduleInboxThreadReload();
     }).subscribe();
   } catch(e) { console.warn('inbox global subscribe err', e); }
 
@@ -21759,16 +21791,11 @@ async function initInbox() {
 
 function applyInboxIncomingMessage(m, appendToOpen = true) {
   if (!m || !m.thread_id) return false;
-  const thr = _inboxState.threads.find(t => t.id === m.thread_id);
-  if (thr) {
-    thr.lastMsg = { content: m.content, sender_type: m.sender_type, created_at: m.created_at, id: m.id, thread_id: m.thread_id };
-    thr.updated_at = m.created_at;
-    _inboxState.threads.sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at));
-    inboxRenderList();
-  }
+  const foundThread = inboxUpdateThreadPreview(m);
+  if (foundThread) inboxRenderList();
   if (appendToOpen && _inboxState.activeThreadId === m.thread_id) inboxAppendMessage(m);
   if (m.sender_type === 'partner') inboxBadgeBump();
-  return true;
+  return foundThread;
 }
 
 function startInboxListPolling() {
@@ -21777,9 +21804,9 @@ function startInboxListPolling() {
   async function pollInboxLatest() {
     try {
       const threads = (_inboxState.threads || []).slice(0, 75);
-      await Promise.all(threads.map(async (t) => {
+      await Promise.allSettled(threads.map(async (t) => {
         const res = await inboxQueryWithTimeout(
-          sb.from('angora_messages').select('id, thread_id, sender_id, sender_type, content, created_at').eq('thread_id', t.id).order('created_at', { ascending: false }).limit(1),
+          inboxRecentMessagesQuery(sb, t.id, 1),
           6000
         );
         const m = res?.data?.[0];
@@ -21790,6 +21817,7 @@ function startInboxListPolling() {
     } catch(e) { console.warn('inbox list poll skipped', e); }
   }
   _inboxState.inboxPollTimer = setInterval(pollInboxLatest, 6000);
+  setTimeout(pollInboxLatest, 800);
 }
 
 function startInboxThreadPolling(threadId) {
@@ -21799,7 +21827,7 @@ function startInboxThreadPolling(threadId) {
     if (_inboxState.activeThreadId !== threadId) return;
     try {
       const res = await inboxQueryWithTimeout(
-        sb.from('angora_messages').select('id, thread_id, sender_id, sender_type, content, created_at').eq('thread_id', threadId).order('created_at', { ascending: false }).limit(25),
+        inboxRecentMessagesQuery(sb, threadId, INBOX_MSG_LATEST_LIMIT),
         6000
       );
       const msgs = (res?.data || []).slice().sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
@@ -21864,7 +21892,7 @@ async function inboxOpenThread(threadId) {
   const sb = window.angoraSupabase;
   let msgs = [];
   try {
-    const res = await inboxQueryWithTimeout(sb.from('angora_messages').select('id, thread_id, sender_id, sender_type, content, created_at').eq('thread_id', threadId).limit(200), 10000);
+    const res = await inboxQueryWithTimeout(inboxRecentMessagesQuery(sb, threadId, INBOX_MSG_HISTORY_LIMIT), 6000);
     msgs = (res?.data || []).slice().sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
   } catch(e) { console.warn('inbox initial messages skipped', e); }
   inboxRememberMessages(msgs);
@@ -21912,8 +21940,10 @@ async function inboxSend() {
   const tempMsg = { thread_id: threadId, sender_type: 'garden', content, created_at: new Date().toISOString() };
   inboxAppendMessage(tempMsg);
   _inboxState.pendingLocal.push({ threadId, sender_type: 'garden', content, at: Date.now() });
-  const { error } = await sb.from('angora_messages').insert({ thread_id: threadId, sender_id: userId, sender_type: 'garden', content });
+  if (inboxUpdateThreadPreview(tempMsg)) inboxRenderList();
+  const { data, error } = await sb.from('angora_messages').insert({ thread_id: threadId, sender_id: userId, sender_type: 'garden', content }).select('id, thread_id, sender_id, sender_type, content, created_at').single();
   if (error) return alert('Send failed: ' + error.message);
+  if (data) applyInboxIncomingMessage(data, true);
   input.value = '';
 }
 
@@ -21924,10 +21954,14 @@ async function acctSendMessage() {
   const { data: userRes } = await sb.auth.getUser();
   const userId = userRes && userRes.user ? userRes.user.id : null;
   const threadId = _acctCache.threadId; if (!threadId) return;
-  const { error } = await sb.from('angora_messages').insert({ thread_id: threadId, sender_id: userId, sender_type: 'garden', content });
+  const tempMsg = { thread_id: threadId, sender_type: 'garden', content, created_at: new Date().toISOString() };
+  acctAppendMessage(tempMsg);
+  _acctCache.msgPendingLocal = _acctCache.msgPendingLocal || [];
+  _acctCache.msgPendingLocal.push({ threadId, sender_type: 'garden', content, at: Date.now() });
+  const { data, error } = await sb.from('angora_messages').insert({ thread_id: threadId, sender_id: userId, sender_type: 'garden', content }).select('id, thread_id, sender_id, sender_type, content, created_at').single();
   if (error) return alert('Send failed: ' + error.message);
+  if (data) acctAppendMessage(data);
   input.value = '';
-  acctRenderMessagesTab();
 }
 
 // ═════════════════════════════════════════════════════════════════════════
