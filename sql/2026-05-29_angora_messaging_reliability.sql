@@ -14,6 +14,43 @@ create index if not exists angora_messages_thread_sender_created_idx
 create index if not exists angora_message_threads_account_updated_idx
   on public.angora_message_threads (account_id, updated_at desc);
 
+-- Collapse exact duplicate threads so one account/department does not split
+-- messages across two visually identical conversations.
+do $$
+begin
+  with ranked_threads as (
+    select
+      id,
+      first_value(id) over (
+        partition by account_id, subject
+        order by updated_at desc nulls last, id desc
+      ) as keep_id
+    from public.angora_message_threads
+  )
+  update public.angora_messages m
+  set thread_id = r.keep_id
+  from ranked_threads r
+  where m.thread_id = r.id
+    and r.id <> r.keep_id;
+
+  with ranked_threads as (
+    select
+      id,
+      first_value(id) over (
+        partition by account_id, subject
+        order by updated_at desc nulls last, id desc
+      ) as keep_id
+    from public.angora_message_threads
+  )
+  delete from public.angora_message_threads t
+  using ranked_threads r
+  where t.id = r.id
+    and r.id <> r.keep_id;
+end $$;
+
+create unique index if not exists angora_message_threads_account_subject_uidx
+  on public.angora_message_threads (account_id, subject);
+
 -- Realtime needs the table in the supabase_realtime publication.
 do $$
 begin

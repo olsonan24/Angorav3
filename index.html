@@ -21579,21 +21579,33 @@ async function acctRenderMessagesTab() {
   const empty = document.getElementById('acctMsgEmpty');
   if (!accountId) return;
   const sb = window.angoraSupabase; if (!sb) return;
-  // Load or find thread
-  let { data: thread } = await sb.from('angora_message_threads').select('id, subject').eq('account_id', accountId).limit(1);
-  let threadId = thread && thread[0] ? thread[0].id : null;
+  const deptSel = document.getElementById('acctMsgDept');
+  const requestedDept = (deptSel && MSG_DEPARTMENTS.includes(deptSel.value)) ? deptSel.value : 'general';
+
+  // Load or find the canonical thread for the selected department. Accounts can
+  // have several department threads, so never use a bare limit(1) here.
+  let { data: threads } = await sb.from('angora_message_threads')
+    .select('id, subject, updated_at')
+    .eq('account_id', accountId)
+    .order('updated_at', { ascending: false });
+  threads = threads || [];
+  let thread = threads.find(t => parseDeptFromSubject(t.subject) === requestedDept) || null;
+  let threadId = thread ? thread.id : null;
   if (!threadId) {
     const { data: userRes } = await sb.auth.getUser();
     const userId = userRes && userRes.user ? userRes.user.id : null;
     const { data: created } = await sb.from('angora_message_threads').insert({ account_id: accountId, subject: `${brand} — Partner chat`, created_by: userId }).select('id, subject').single();
+    if (created && requestedDept !== 'general') {
+      created.subject = buildSubjectWithDept(requestedDept, brand);
+      await sb.from('angora_message_threads').update({ subject: created.subject }).eq('id', created.id);
+    }
     threadId = created ? created.id : null;
-    thread = created ? [created] : [];
+    thread = created || null;
   }
   _acctCache.threadId = threadId;
-  // Set department dropdown from thread subject
-  const deptSel = document.getElementById('acctMsgDept');
-  if (deptSel && thread && thread[0]) {
-    const dept = parseDeptFromSubject(thread[0].subject);
+  // Keep dropdown aligned with the loaded thread.
+  if (deptSel && thread) {
+    const dept = parseDeptFromSubject(thread.subject);
     deptSel.value = MSG_DEPARTMENTS.includes(dept) ? dept : 'general';
   }
   if (!threadId) return;
@@ -21944,6 +21956,7 @@ async function inboxSend() {
   const { data, error } = await sb.from('angora_messages').insert({ thread_id: threadId, sender_id: userId, sender_type: 'garden', content }).select('id, thread_id, sender_id, sender_type, content, created_at').single();
   if (error) return alert('Send failed: ' + error.message);
   if (data) applyInboxIncomingMessage(data, true);
+  await sb.from('angora_message_threads').update({ updated_at: new Date().toISOString() }).eq('id', threadId);
   input.value = '';
 }
 
@@ -21961,6 +21974,7 @@ async function acctSendMessage() {
   const { data, error } = await sb.from('angora_messages').insert({ thread_id: threadId, sender_id: userId, sender_type: 'garden', content }).select('id, thread_id, sender_id, sender_type, content, created_at').single();
   if (error) return alert('Send failed: ' + error.message);
   if (data) acctAppendMessage(data);
+  await sb.from('angora_message_threads').update({ updated_at: new Date().toISOString() }).eq('id', threadId);
   input.value = '';
 }
 
@@ -21985,16 +21999,10 @@ function buildSubjectWithDept(dept, brand) {
 async function acctChangeMsgDept() {
   const sel = document.getElementById('acctMsgDept');
   const saved = document.getElementById('acctMsgDeptSaved');
-  if (!sel || !_acctCache.threadId) return;
+  if (!sel) return;
   const dept = sel.value;
-  const brand = _acctActiveBrand || '';
-  const newSubject = buildSubjectWithDept(dept, brand);
-  const sb = window.angoraSupabase; if (!sb) return;
-  const { error } = await sb.from('angora_message_threads').update({ subject: newSubject }).eq('id', _acctCache.threadId);
-  if (error) { console.warn('dept update err', error); return; }
+  await acctRenderMessagesTab();
   if (saved) { saved.textContent = '✓ Saved'; saved.style.opacity = '1'; setTimeout(() => { saved.style.opacity = '0'; }, 1500); }
-  // Log activity
-  acctLogActivity(brand, 'message', `Message thread department changed to ${MSG_DEPT_LABELS[dept] || dept}`);
 }
 
 // Inbox department filter
