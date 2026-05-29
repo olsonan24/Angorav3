@@ -21523,6 +21523,49 @@ window.acctEconDrillToRange = function(startIso, endIso, label) {
 };
 
 // ── MESSAGES TAB ──────────────────────────────────────────────────────────
+function acctMsgKey(m) {
+  return m?.id || `${m?.thread_id || _acctCache.threadId || 'thread'}-${m?.created_at || ''}-${m?.sender_type || ''}-${(m?.content || '').slice(0, 80)}`;
+}
+function acctMsgBubbleHtml(m) {
+  return `<div style="padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:9px">
+    <div style="font-size:9px;color:var(--accent);margin-bottom:4px">${(m.sender_type||'garden').toUpperCase()} · ${new Date(m.created_at).toLocaleString()}</div>
+    <div style="font-size:11px;color:#e8e9f0;white-space:pre-wrap">${(m.content||'').replace(/</g,'&lt;')}</div>
+  </div>`;
+}
+function acctRememberMessages(msgs) {
+  if (!_acctCache.msgSeenKeys) _acctCache.msgSeenKeys = new Set();
+  (msgs || []).forEach(m => _acctCache.msgSeenKeys.add(acctMsgKey(m)));
+}
+function acctAppendMessage(m) {
+  if (!m) return;
+  if (!_acctCache.msgSeenKeys) _acctCache.msgSeenKeys = new Set();
+  const key = acctMsgKey(m);
+  if (_acctCache.msgSeenKeys.has(key)) return;
+  _acctCache.msgSeenKeys.add(key);
+  _acctCache.messages = _acctCache.messages || [];
+  _acctCache.messages.push(m);
+  const list = document.getElementById('acctMsgList');
+  if (list) {
+    list.insertAdjacentHTML('beforeend', acctMsgBubbleHtml(m));
+    list.scrollTop = list.scrollHeight;
+    const empty = document.getElementById('acctMsgEmpty'); if (empty) empty.style.display = 'none';
+  }
+}
+function startAcctMsgPolling(threadId) {
+  const sb = window.angoraSupabase; if (!sb) return;
+  if (_acctCache.msgPollTimer) clearInterval(_acctCache.msgPollTimer);
+  async function pollAcctMessages() {
+    if (_acctCache.threadId !== threadId) return;
+    try {
+      const res = await inboxQueryWithTimeout(sb.from('angora_messages').select('id, thread_id, sender_id, sender_type, content, created_at').eq('thread_id', threadId).order('created_at', { ascending: false }).limit(25), 6000);
+      const msgs = (res?.data || []).slice().sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+      msgs.forEach(m => { if (!_acctCache.msgSeenKeys || !_acctCache.msgSeenKeys.has(acctMsgKey(m))) acctAppendMessage(m); });
+    } catch(e) { console.warn('account messages poll skipped', e); }
+  }
+  _acctCache.msgPollTimer = setInterval(pollAcctMessages, 2500);
+  setTimeout(pollAcctMessages, 600);
+}
+
 async function acctRenderMessagesTab() {
   const brand = _acctActiveBrand;
   const accountId = await acctEnsureAccount(brand);
@@ -21548,37 +21591,28 @@ async function acctRenderMessagesTab() {
     deptSel.value = MSG_DEPARTMENTS.includes(dept) ? dept : 'general';
   }
   if (!threadId) return;
-  const { data: msgs } = await sb.from('angora_messages').select('*').eq('thread_id', threadId).order('created_at');
+  let msgs = [];
+  try {
+    const res = await inboxQueryWithTimeout(sb.from('angora_messages').select('id, thread_id, sender_id, sender_type, content, created_at').eq('thread_id', threadId).limit(200), 10000);
+    msgs = (res?.data || []).slice().sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+  } catch(e) { console.warn('account initial messages skipped', e); }
   _acctCache.messages = msgs || [];
+  _acctCache.msgSeenKeys = new Set();
+  acctRememberMessages(_acctCache.messages);
+  startAcctMsgPolling(threadId);
 
   // Subscribe to realtime inserts on this thread
   try {
     if (_acctCache.msgChannel) { await sb.removeChannel(_acctCache.msgChannel); }
     _acctCache.msgChannel = sb.channel(`acct-msgs-${threadId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'angora_messages', filter: `thread_id=eq.${threadId}` }, (payload) => {
-        // Append incoming message
-        const m = payload.new;
-        const exists = (_acctCache.messages || []).some(x => x.id === m.id);
-        if (exists) return;
-        _acctCache.messages.push(m);
-        const list = document.getElementById('acctMsgList');
-        if (list) {
-          const bubble = document.createElement('div');
-          bubble.style.cssText = 'padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:9px';
-          bubble.innerHTML = `<div style="font-size:9px;color:var(--accent);margin-bottom:4px">${(m.sender_type||'garden').toUpperCase()} · ${new Date(m.created_at).toLocaleString()}</div><div style="font-size:11px;color:#e8e9f0;white-space:pre-wrap">${(m.content||'').replace(/</g,'&lt;')}</div>`;
-          list.appendChild(bubble);
-          list.scrollTop = list.scrollHeight;
-          const empty = document.getElementById('acctMsgEmpty'); if (empty) empty.style.display = 'none';
-        }
+        acctAppendMessage(payload.new);
       })
       .subscribe();
   } catch(e) { console.warn('realtime subscribe err', e); }
   if (!msgs || msgs.length === 0) { list.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
-  list.innerHTML = msgs.map(m => `<div style="padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:9px">
-    <div style="font-size:9px;color:var(--accent);margin-bottom:4px">${(m.sender_type||'garden').toUpperCase()} · ${new Date(m.created_at).toLocaleString()}</div>
-    <div style="font-size:11px;color:#e8e9f0;white-space:pre-wrap">${(m.content||'').replace(/</g,'&lt;')}</div>
-  </div>`).join('');
+  list.innerHTML = msgs.map(acctMsgBubbleHtml).join('');
   list.scrollTop = list.scrollHeight;
 }
 
@@ -21592,7 +21626,18 @@ const INBOX_PRODUCT_TEAM_EMAILS = ['edgar@joinangora.com', 'corby@joinangora.com
 const INBOX_ADMIN_EMAILS = ['alex@joinangora.com', 'ben@joinangora.com', 'kenny@joinangora.com'];
 const INBOX_GLOBAL_ACCESS = [...INBOX_PRODUCT_TEAM_EMAILS, ...INBOX_ADMIN_EMAILS];
 
-let _inboxState = { threads: [], activeThreadId: null, accountsById: {}, msgChannel: null, inboxChannel: null };
+let _inboxState = { threads: [], activeThreadId: null, accountsById: {}, msgChannel: null, inboxChannel: null, activePollTimer: null, inboxPollTimer: null, seenMsgKeys: new Set(), pendingLocal: [] };
+
+function inboxMsgKey(m) {
+  return m?.id || `${m?.thread_id || _inboxState.activeThreadId || 'thread'}-${m?.created_at || ''}-${m?.sender_type || ''}-${(m?.content || '').slice(0, 80)}`;
+}
+function inboxQueryWithTimeout(query, ms = 8000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), ms);
+    query.then((res) => { clearTimeout(timer); resolve(res); }, (err) => { clearTimeout(timer); reject(err); });
+  });
+}
+function inboxRememberMessages(msgs) { (msgs || []).forEach(m => _inboxState.seenMsgKeys.add(inboxMsgKey(m))); }
 
 // ═══ Sidebar notification badge ═══
 function updateInboxBadge(count) {
@@ -21696,6 +21741,7 @@ async function initInbox() {
   _inboxState.threads = threads.map((t, i) => ({ ...t, lastMsg: lastMsgs[i] || null, account: byId[t.account_id] }));
 
   inboxRenderList();
+  startInboxListPolling();
 
   // Subscribe to any new messages across all threads (for badge + live list updates)
   try {
@@ -21703,24 +21749,67 @@ async function initInbox() {
     _inboxState.inboxChannel = sb.channel('inbox-global').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'angora_messages' }, (payload) => {
       // Refresh just the affected thread
       const m = payload.new;
-      const thr = _inboxState.threads.find(t => t.id === m.thread_id);
-      if (thr) {
-        thr.lastMsg = { content: m.content, sender_type: m.sender_type, created_at: m.created_at };
-        thr.updated_at = m.created_at;
-        _inboxState.threads.sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at));
-        inboxRenderList();
-        // If the active thread, append to chat too
-        if (_inboxState.activeThreadId === m.thread_id) {
-          inboxAppendMessage(m);
-        }
-        // Show sidebar notification badge for partner replies
-        if (m.sender_type === 'partner') inboxBadgeBump();
-      }
+      applyInboxIncomingMessage(m, true);
     }).subscribe();
   } catch(e) { console.warn('inbox global subscribe err', e); }
 
   // Auto-open first thread
   if (_inboxState.threads[0]) inboxOpenThread(_inboxState.threads[0].id);
+}
+
+function applyInboxIncomingMessage(m, appendToOpen = true) {
+  if (!m || !m.thread_id) return false;
+  const thr = _inboxState.threads.find(t => t.id === m.thread_id);
+  if (thr) {
+    thr.lastMsg = { content: m.content, sender_type: m.sender_type, created_at: m.created_at, id: m.id, thread_id: m.thread_id };
+    thr.updated_at = m.created_at;
+    _inboxState.threads.sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at));
+    inboxRenderList();
+  }
+  if (appendToOpen && _inboxState.activeThreadId === m.thread_id) inboxAppendMessage(m);
+  if (m.sender_type === 'partner') inboxBadgeBump();
+  return true;
+}
+
+function startInboxListPolling() {
+  const sb = window.angoraSupabase; if (!sb) return;
+  if (_inboxState.inboxPollTimer) clearInterval(_inboxState.inboxPollTimer);
+  async function pollInboxLatest() {
+    try {
+      const threads = (_inboxState.threads || []).slice(0, 75);
+      await Promise.all(threads.map(async (t) => {
+        const res = await inboxQueryWithTimeout(
+          sb.from('angora_messages').select('id, thread_id, sender_id, sender_type, content, created_at').eq('thread_id', t.id).order('created_at', { ascending: false }).limit(1),
+          6000
+        );
+        const m = res?.data?.[0];
+        if (!m) return;
+        const currentKey = inboxMsgKey(t.lastMsg ? { ...t.lastMsg, thread_id: t.id } : null);
+        if (inboxMsgKey(m) !== currentKey) applyInboxIncomingMessage(m, false);
+      }));
+    } catch(e) { console.warn('inbox list poll skipped', e); }
+  }
+  _inboxState.inboxPollTimer = setInterval(pollInboxLatest, 6000);
+}
+
+function startInboxThreadPolling(threadId) {
+  const sb = window.angoraSupabase; if (!sb) return;
+  if (_inboxState.activePollTimer) clearInterval(_inboxState.activePollTimer);
+  async function pollThread() {
+    if (_inboxState.activeThreadId !== threadId) return;
+    try {
+      const res = await inboxQueryWithTimeout(
+        sb.from('angora_messages').select('id, thread_id, sender_id, sender_type, content, created_at').eq('thread_id', threadId).order('created_at', { ascending: false }).limit(25),
+        6000
+      );
+      const msgs = (res?.data || []).slice().sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+      msgs.forEach(m => {
+        if (!_inboxState.seenMsgKeys.has(inboxMsgKey(m))) applyInboxIncomingMessage(m, true);
+      });
+    } catch(e) { console.warn('inbox thread poll skipped', e); }
+  }
+  _inboxState.activePollTimer = setInterval(pollThread, 2500);
+  setTimeout(pollThread, 600);
 }
 
 function inboxRenderList() {
@@ -21773,10 +21862,16 @@ async function inboxOpenThread(threadId) {
     </div>
   `;
   const sb = window.angoraSupabase;
-  const { data: msgs } = await sb.from('angora_messages').select('*').eq('thread_id', threadId).order('created_at');
+  let msgs = [];
+  try {
+    const res = await inboxQueryWithTimeout(sb.from('angora_messages').select('id, thread_id, sender_id, sender_type, content, created_at').eq('thread_id', threadId).limit(200), 10000);
+    msgs = (res?.data || []).slice().sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+  } catch(e) { console.warn('inbox initial messages skipped', e); }
+  inboxRememberMessages(msgs);
   const body = document.getElementById('inboxChatBody');
   body.innerHTML = (msgs || []).map(inboxMsgHtml).join('');
   body.scrollTop = body.scrollHeight;
+  startInboxThreadPolling(threadId);
 }
 
 function inboxMsgHtml(m) {
@@ -21786,7 +21881,16 @@ function inboxMsgHtml(m) {
 
 function inboxAppendMessage(m) {
   const body = document.getElementById('inboxChatBody');
-  if (!body) return;
+  if (!body || !m) return;
+  const key = inboxMsgKey(m);
+  if (_inboxState.seenMsgKeys.has(key)) return;
+  const pendingIdx = _inboxState.pendingLocal.findIndex(p => p.threadId === m.thread_id && p.sender_type === m.sender_type && p.content === m.content && (Date.now() - p.at) < 60000);
+  if (pendingIdx >= 0) {
+    _inboxState.pendingLocal.splice(pendingIdx, 1);
+    _inboxState.seenMsgKeys.add(key);
+    return;
+  }
+  _inboxState.seenMsgKeys.add(key);
   const div = document.createElement('div');
   div.innerHTML = inboxMsgHtml(m);
   body.appendChild(div.firstChild);
@@ -21805,6 +21909,9 @@ async function inboxSend() {
   const sb = window.angoraSupabase;
   const { data: userRes } = await sb.auth.getUser();
   const userId = userRes && userRes.user ? userRes.user.id : null;
+  const tempMsg = { thread_id: threadId, sender_type: 'garden', content, created_at: new Date().toISOString() };
+  inboxAppendMessage(tempMsg);
+  _inboxState.pendingLocal.push({ threadId, sender_type: 'garden', content, at: Date.now() });
   const { error } = await sb.from('angora_messages').insert({ thread_id: threadId, sender_id: userId, sender_type: 'garden', content });
   if (error) return alert('Send failed: ' + error.message);
   input.value = '';
