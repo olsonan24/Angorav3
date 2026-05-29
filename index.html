@@ -14891,16 +14891,8 @@ async function acctProfileOpen(brand, specialist) {
     let row = null;
     if (sb && accountId) {
       let { data: selData, error: selErr } = await sb.from('angora_accounts')
-        .select('contact_name,contact_email,contact_phone,ops_specialist,psm_name,psm_email,osm_name,osm_email,account_since,audit_days,account_notes')
+        .select('contact_name,contact_email,contact_phone,ops_specialist,psm_name,psm_email,account_since,audit_days,account_notes')
         .eq('id', accountId).single();
-      // If osm columns don't exist yet, retry without them
-      if (selErr && selErr.message && (selErr.message.includes('osm_name') || selErr.message.includes('osm_email'))) {
-        const retry = await sb.from('angora_accounts')
-          .select('contact_name,contact_email,contact_phone,ops_specialist,psm_name,psm_email,account_since,audit_days,account_notes')
-          .eq('id', accountId).single();
-        selErr = retry.error;
-        selData = retry.data;
-      }
       if (!selErr) row = selData;
     }
 
@@ -14999,7 +14991,7 @@ async function acctSaveNow() {
     const sb = window.angoraSupabase;
     const accountId = await acctEnsureAccount(_acctActiveBrand);
     if (sb && accountId) {
-      // Build update payload — include OSM fields only if columns exist
+      // Keep to columns that exist in the current production schema.
       const updatePayload = {
         contact_name:   data.contactName || null,
         contact_email:  data.email       || null,
@@ -15007,20 +14999,11 @@ async function acctSaveNow() {
         ops_specialist: data.specialist  || null,
         psm_name:       data.psm         || null,
         psm_email:      data.psmEmail    || null,
-        osm_name:       data.osm         || null,
-        osm_email:      data.osmEmail    || null,
         account_since:  data.since       || null,
         audit_days:     data.auditDays   || [],
         account_notes:  data.notes       || null,
       };
       let { error } = await sb.from('angora_accounts').update(updatePayload).eq('id', accountId);
-      // If osm columns don't exist yet, retry without them
-      if (error && error.message && (error.message.includes('osm_name') || error.message.includes('osm_email'))) {
-        delete updatePayload.osm_name;
-        delete updatePayload.osm_email;
-        const retry = await sb.from('angora_accounts').update(updatePayload).eq('id', accountId);
-        error = retry.error;
-      }
       if (error) console.warn('acctSaveNow: supabase update err', error);
     }
   } catch(e) { console.warn('acctSaveNow supabase err', e); }
@@ -21748,16 +21731,8 @@ async function initInbox() {
 
   // Load accounts with PSM + OSM email fields for permission filtering
   let accounts = [];
-  // Try with osm_email first (column may not exist yet)
-  let selectFields = 'id, name, psm_email, osm_email';
+  const selectFields = 'id, name, psm_email';
   let { data: acctData, error: accErr } = await sb.from('angora_accounts').select(selectFields).eq('status', 'active').order('name');
-  if (accErr && accErr.message && accErr.message.includes('osm_email')) {
-    // osm_email column doesn't exist yet – fall back
-    selectFields = 'id, name, psm_email';
-    const fallback = await sb.from('angora_accounts').select(selectFields).eq('status', 'active').order('name');
-    acctData = fallback.data;
-    accErr = fallback.error;
-  }
   if (accErr) { body.innerHTML = '<div class="inbox-empty">Error: ' + accErr.message + '</div>'; return; }
   accounts = acctData || [];
 
@@ -24478,7 +24453,7 @@ window.angoraResolveRole = async function angoraResolveRole(opts = {}) {
       try {
         const { data: profile } = await sb.from('angora_user_profiles')
           .select('role, approval_status')
-          .eq('id', user.id)
+          .eq('user_id', user.id)
           .maybeSingle();
         const role = String(profile?.role || '').trim().toLowerCase();
         const status = String(profile?.approval_status || '').trim().toLowerCase();
