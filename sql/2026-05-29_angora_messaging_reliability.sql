@@ -73,34 +73,53 @@ language sql
 stable
 security definer
 set search_path = public
-as $$
+as $fn$
   select coalesce(
+    -- Angora internal admins / global message users
     lower(coalesce(auth.jwt() ->> 'email', '')) in (
       'alex@joinangora.com',
       'ben@joinangora.com',
       'kenny@joinangora.com',
       'edgar@joinangora.com',
-      'corby@joinangora.com'
+      'corby@joinangora.com',
+      'jared@joinangora.com',
+      'collin@joinangora.com',
+      'logan@joinangora.com',
+      'kate@joinangora.com',
+      'jj@joinangora.com',
+      'aimec@joinangora.com'
     )
+
+    -- Account contact / owner fields. psm_email or osm_email may contain
+    -- comma-separated emails, so split + trim before comparing.
     or exists (
       select 1
       from public.angora_accounts a
       where a.id = p_account_id
-        and lower(coalesce(auth.jwt() ->> 'email', '')) in (
-          lower(coalesce(a.contact_email, '')),
-          lower(coalesce(a.psm_email, '')),
-          lower(coalesce(to_jsonb(a) ->> 'osm_email', ''))
+        and (
+          lower(coalesce(a.contact_email, '')) = lower(coalesce(auth.jwt() ->> 'email', ''))
+          or lower(coalesce(auth.jwt() ->> 'email', '')) = any (
+            select lower(trim(x))
+            from unnest(string_to_array(coalesce(a.psm_email, ''), ',')) as x
+          )
+          or lower(coalesce(auth.jwt() ->> 'email', '')) = any (
+            select lower(trim(x))
+            from unnest(string_to_array(coalesce(to_jsonb(a) ->> 'osm_email', ''), ',')) as x
+          )
         )
     )
+
+    -- Explicit partner grants. IMPORTANT: angora_partner_access stores user_id,
+    -- not email. The old helper checked pa.email, which always failed.
     or exists (
       select 1
       from public.angora_partner_access pa
       where pa.account_id = p_account_id
-        and lower(coalesce(to_jsonb(pa) ->> 'email', '')) = lower(coalesce(auth.jwt() ->> 'email', ''))
+        and pa.user_id = auth.uid()
     ),
     false
   );
-$$;
+$fn$;
 
 revoke all on function public.angora_can_access_account(uuid) from public;
 grant execute on function public.angora_can_access_account(uuid) to authenticated;
