@@ -21568,8 +21568,8 @@ function startAcctMsgPolling(threadId) {
       msgs.forEach(m => { if (!_acctCache.msgSeenKeys || !_acctCache.msgSeenKeys.has(acctMsgKey(m))) acctAppendMessage(m); });
     } catch(e) { console.warn('account messages poll skipped', e); }
   }
-  _acctCache.msgPollTimer = setInterval(pollAcctMessages, 2500);
-  setTimeout(pollAcctMessages, 600);
+  _acctCache.msgPollTimer = setInterval(pollAcctMessages, 1000);
+  setTimeout(pollAcctMessages, 250);
 }
 
 async function acctRenderMessagesTab() {
@@ -21836,7 +21836,7 @@ function startInboxListPolling() {
       }));
     } catch(e) { console.warn('inbox list poll skipped', e); }
   }
-  _inboxState.inboxPollTimer = setInterval(pollInboxLatest, 6000);
+  _inboxState.inboxPollTimer = setInterval(pollInboxLatest, 2000);
   setTimeout(pollInboxLatest, 800);
 }
 
@@ -21856,8 +21856,8 @@ function startInboxThreadPolling(threadId) {
       });
     } catch(e) { console.warn('inbox thread poll skipped', e); }
   }
-  _inboxState.activePollTimer = setInterval(pollThread, 2500);
-  setTimeout(pollThread, 600);
+  _inboxState.activePollTimer = setInterval(pollThread, 1000);
+  setTimeout(pollThread, 250);
 }
 
 function inboxRenderList() {
@@ -21962,7 +21962,11 @@ async function inboxSend() {
   _inboxState.pendingLocal.push({ threadId, sender_type: 'garden', content, at: Date.now() });
   if (inboxUpdateThreadPreview(tempMsg)) inboxRenderList();
   const { data, error } = await sb.from('angora_messages').insert({ thread_id: threadId, sender_id: userId, sender_type: 'garden', content }).select('id, thread_id, sender_id, sender_type, content, created_at').single();
-  if (error) return alert('Send failed: ' + error.message);
+  if (error) {
+    _inboxState.pendingLocal = _inboxState.pendingLocal.filter(p => !(p.threadId === threadId && p.sender_type === 'garden' && p.content === content));
+    await inboxOpenThread(threadId);
+    return alert('Send failed: ' + error.message);
+  }
   if (data) applyInboxIncomingMessage(data, true);
   await sb.from('angora_message_threads').update({ updated_at: new Date().toISOString() }).eq('id', threadId);
   input.value = '';
@@ -21995,7 +21999,11 @@ async function acctSendMessage() {
   _acctCache.msgPendingLocal = _acctCache.msgPendingLocal || [];
   _acctCache.msgPendingLocal.push({ threadId, sender_type: 'garden', content, at: Date.now() });
   const { data, error } = await sb.from('angora_messages').insert({ thread_id: threadId, sender_id: userId, sender_type: 'garden', content }).select('id, thread_id, sender_id, sender_type, content, created_at').single();
-  if (error) return alert('Send failed: ' + error.message);
+  if (error) {
+    _acctCache.msgPendingLocal = (_acctCache.msgPendingLocal || []).filter(p => !(p.threadId === threadId && p.sender_type === 'garden' && p.content === content));
+    await acctRenderMessagesTab();
+    return alert('Send failed: ' + error.message);
+  }
   if (data) acctAppendMessage(data);
   await sb.from('angora_message_threads').update({ updated_at: new Date().toISOString() }).eq('id', threadId);
   input.value = '';
