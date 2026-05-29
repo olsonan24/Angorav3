@@ -15030,6 +15030,8 @@ async function acctSaveNow() {
     el.style.opacity = '1';
     setTimeout(() => { el.style.opacity = '0'; }, 2000);
   }
+  // Log activity
+  acctLogActivity(_acctActiveBrand, 'settings', 'Account settings updated');
 }
 
 
@@ -18128,10 +18130,35 @@ window.calDeleteAudit = async function() {
   .inbox-chat-footer input { flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:9px; padding:10px 14px; color:var(--text); font-family:'DM Mono',monospace; font-size:11px; outline:none; }
   .inbox-chat-footer button { background:var(--accent); color:#fff; border:none; border-radius:9px; padding:10px 18px; font-family:'DM Mono',monospace; font-size:10px; font-weight:800; cursor:pointer; text-transform:uppercase; letter-spacing:1px; }
   .inbox-empty { color:#a0a2b0; text-align:center; padding:60px 20px; font-family:'DM Mono',monospace; font-size:11px; }
+  .inbox-dept-filter { display:flex; gap:4px; padding:8px 12px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  .inbox-dept-btn { background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:4px 10px; color:var(--muted); font-family:'DM Mono',monospace; font-size:9px; cursor:pointer; text-transform:uppercase; letter-spacing:1px; transition:all 0.15s; }
+  .inbox-dept-btn:hover { border-color:var(--accent); color:var(--text); }
+  .inbox-dept-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .inbox-dept-tag { display:inline-block; background:rgba(107,143,255,0.12); color:var(--accent); font-family:'DM Mono',monospace; font-size:8px; padding:2px 7px; border-radius:4px; text-transform:uppercase; letter-spacing:1px; margin-left:6px; vertical-align:middle; }
+  .acct-dept-select { background:var(--surface2); border:1px solid var(--border); border-radius:9px; padding:9px 12px; color:var(--text); font-family:'DM Mono',monospace; font-size:11px; outline:none; cursor:pointer; }
+  .acct-dept-select option { background:var(--surface); color:var(--text); }
+  .activity-timeline { display:flex; flex-direction:column; gap:0; }
+  .activity-entry { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); }
+  .activity-entry:last-child { border-bottom:none; }
+  .activity-dot { width:8px; height:8px; border-radius:50%; margin-top:4px; flex-shrink:0; }
+  .activity-dot.inventory { background:#34d399; }
+  .activity-dot.settings { background:#fbbf24; }
+  .activity-dot.message { background:#60a5fa; }
+  .activity-dot.general { background:#a78bfa; }
+  .activity-body { flex:1; font-family:'DM Mono',monospace; font-size:10px; color:var(--text); line-height:1.5; }
+  .activity-time { font-size:8px; color:var(--muted); margin-top:2px; }
 </style>
 <div class="inbox-wrap">
   <div class="inbox-list">
     <div class="inbox-list-header" id="inboxListHeader">Inbox</div>
+    <div class="inbox-dept-filter" id="inboxDeptFilter">
+      <button class="inbox-dept-btn active" data-dept="all" onclick="inboxFilterDept('all')">All</button>
+      <button class="inbox-dept-btn" data-dept="general" onclick="inboxFilterDept('general')">General</button>
+      <button class="inbox-dept-btn" data-dept="ppc" onclick="inboxFilterDept('ppc')">PPC</button>
+      <button class="inbox-dept-btn" data-dept="inventory" onclick="inboxFilterDept('inventory')">Inventory</button>
+      <button class="inbox-dept-btn" data-dept="account" onclick="inboxFilterDept('account')">Account</button>
+      <button class="inbox-dept-btn" data-dept="billing" onclick="inboxFilterDept('billing')">Billing</button>
+    </div>
     <div class="inbox-list-body" id="inboxListBody">
       <div class="inbox-empty">Loading\u2026</div>
     </div>
@@ -18337,6 +18364,7 @@ window.calDeleteAudit = async function() {
       <button class="acct-tab" data-tab="orders" onclick="acctSwitchTab('orders')">Orders</button>
       <button class="acct-tab" data-tab="notes" onclick="acctSwitchTab('notes')">Notes</button>
       <button class="acct-tab" data-tab="messages" onclick="acctSwitchTab('messages')">Messages</button>
+      <button class="acct-tab" data-tab="activity" onclick="acctSwitchTab('activity')">Activity</button>
       <button class="acct-tab" data-tab="reports" onclick="acctSwitchTab('reports')">Reports</button>
       <button class="acct-tab" data-tab="client_report" onclick="acctSwitchTab('client_report')">Client Report</button>
     </div>
@@ -18696,12 +18724,34 @@ window.calDeleteAudit = async function() {
       <div class="acct-tab-panel" data-tabpanel="messages" id="acctPanelMessages">
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
           <div class="acct-section-title">Messages with Partner</div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <label style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Department</label>
+            <select id="acctMsgDept" class="acct-dept-select" onchange="acctChangeMsgDept()">
+              <option value="general">General</option>
+              <option value="ppc">PPC</option>
+              <option value="inventory">Inventory</option>
+              <option value="account">Account Mgmt</option>
+              <option value="billing">Billing</option>
+            </select>
+            <span id="acctMsgDeptSaved" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--increase);opacity:0;transition:opacity 0.3s"></span>
+          </div>
           <div id="acctMsgList" style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;margin-bottom:12px"></div>
           <div style="display:flex;gap:8px">
             <input id="acctMsgInput" type="text" placeholder="Write a message\u2026" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px;outline:none">
             <button class="acct-save-btn" onclick="acctSendMessage()">Send</button>
           </div>
           <div id="acctMsgEmpty" class="acct-empty" style="display:none">No messages yet with this partner.</div>
+        </div>
+      </div>
+
+      <!-- ACTIVITY TAB -->
+      <div class="acct-tab-panel" data-tabpanel="activity" id="acctPanelActivity">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px">
+          <div class="acct-section-title">Activity Timeline</div>
+          <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:14px">Recent changes to this account — inventory, settings, messages, and more.</div>
+          <div id="acctActivityTimeline" class="activity-timeline">
+            <div class="inbox-empty" style="padding:30px 0">Loading…</div>
+          </div>
         </div>
       </div>
 
@@ -18801,6 +18851,7 @@ function acctSwitchTab(tab) {
   if (tab === 'notes')      acctRenderNotesTab();
   if (tab === 'economics')  acctRenderEconomicsTab();
   if (tab === 'messages')   acctRenderMessagesTab();
+  if (tab === 'activity')   acctRenderActivityTab();
   if (tab === 'reports')    acctRenderReportsTab();
   if (tab === 'client_report') acctRenderClientReportTab();
 }
@@ -19267,6 +19318,9 @@ async function acctSaveProductEdit(productId) {
       }
     }
   } catch(e) { console.warn('[crpsku-editmodal-v1] _plCache mirror failed', e); }
+  // Log activity
+  const prodName = payload.name || payload.sku || payload.asin || 'product';
+  acctLogActivity(_acctActiveBrand, 'settings', `Product updated: ${prodName}`);
   setTimeout(() => {
     const m = document.getElementById('acctProdModal'); if (m) m.remove();
     // crpsku-editmodal-v1: refresh every surface that shows product data so
@@ -19300,6 +19354,8 @@ async function acctSaveInventory() {
   await sb.from('angora_inventory_history').insert(rows.map(r => ({ ...r, source: 'manual', recorded_by: userId })));
   _acctCache.invDirty.clear();
   acctRenderInventoryTab();
+  // Log activity
+  acctLogActivity(_acctActiveBrand, 'inventory', `Inventory updated (${rows.length} row${rows.length !== 1 ? 's' : ''} changed)`);
 }
 
 // ── FBA Inventory Report drop-zone ────────────────────────────────────
@@ -21475,15 +21531,22 @@ async function acctRenderMessagesTab() {
   if (!accountId) return;
   const sb = window.angoraSupabase; if (!sb) return;
   // Load or find thread
-  let { data: thread } = await sb.from('angora_message_threads').select('id').eq('account_id', accountId).limit(1);
+  let { data: thread } = await sb.from('angora_message_threads').select('id, subject').eq('account_id', accountId).limit(1);
   let threadId = thread && thread[0] ? thread[0].id : null;
   if (!threadId) {
     const { data: userRes } = await sb.auth.getUser();
     const userId = userRes && userRes.user ? userRes.user.id : null;
-    const { data: created } = await sb.from('angora_message_threads').insert({ account_id: accountId, subject: `${brand} — Partner chat`, created_by: userId }).select('id').single();
+    const { data: created } = await sb.from('angora_message_threads').insert({ account_id: accountId, subject: `${brand} — Partner chat`, created_by: userId }).select('id, subject').single();
     threadId = created ? created.id : null;
+    thread = created ? [created] : [];
   }
   _acctCache.threadId = threadId;
+  // Set department dropdown from thread subject
+  const deptSel = document.getElementById('acctMsgDept');
+  if (deptSel && thread && thread[0]) {
+    const dept = parseDeptFromSubject(thread[0].subject);
+    deptSel.value = MSG_DEPARTMENTS.includes(dept) ? dept : 'general';
+  }
   if (!threadId) return;
   const { data: msgs } = await sb.from('angora_messages').select('*').eq('thread_id', threadId).order('created_at');
   _acctCache.messages = msgs || [];
@@ -21620,15 +21683,25 @@ function inboxRenderList() {
   const body = document.getElementById('inboxListBody');
   const header = document.getElementById('inboxListHeader');
   if (!body) return;
-  header.textContent = `Inbox (${_inboxState.threads.length})`;
-  body.innerHTML = _inboxState.threads.map(t => {
+  // Apply department filter
+  const filtered = _inboxDeptFilter === 'all'
+    ? _inboxState.threads
+    : _inboxState.threads.filter(t => parseDeptFromSubject(t.subject) === _inboxDeptFilter);
+  header.textContent = `Inbox (${filtered.length}${filtered.length !== _inboxState.threads.length ? ' / ' + _inboxState.threads.length : ''})`;
+  if (filtered.length === 0 && _inboxState.threads.length > 0) {
+    body.innerHTML = '<div class="inbox-empty" style="padding:30px 0">No conversations in this department.</div>';
+    return;
+  }
+  body.innerHTML = filtered.map(t => {
     const last = t.lastMsg;
     const preview = last ? (last.content || '').slice(0, 60) : '(no messages yet)';
     const time = last ? acctTimeAgo(new Date(last.created_at).getTime()) : '';
     const who = last && last.sender_type === 'partner' ? '<span style="color:#ffd166">Partner:</span> ' : '';
     const active = t.id === _inboxState.activeThreadId ? 'active' : '';
+    const dept = parseDeptFromSubject(t.subject);
+    const deptTag = dept !== 'general' ? `<span class="inbox-dept-tag">${MSG_DEPT_LABELS[dept] || dept}</span>` : '';
     return `<div class="inbox-thread ${active}" onclick="inboxOpenThread('${t.id}')">
-      <div class="inbox-thread-name">${(t.account?.name || 'Unknown').replace(/</g,'&lt;')}</div>
+      <div class="inbox-thread-name">${(t.account?.name || 'Unknown').replace(/</g,'&lt;')}${deptTag}</div>
       <div class="inbox-thread-preview">${who}${preview.replace(/</g,'&lt;')}</div>
       <div class="inbox-thread-time">${time}</div>
     </div>`;
@@ -21704,6 +21777,99 @@ async function acctSendMessage() {
   if (error) return alert('Send failed: ' + error.message);
   input.value = '';
   acctRenderMessagesTab();
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// DEPARTMENT MESSAGE QUEUES
+// ═════════════════════════════════════════════════════════════════════════
+const MSG_DEPARTMENTS = ['general','ppc','inventory','account','billing'];
+const MSG_DEPT_LABELS = { general:'General', ppc:'PPC', inventory:'Inventory', account:'Account Mgmt', billing:'Billing' };
+
+function parseDeptFromSubject(subject) {
+  if (!subject) return 'general';
+  const m = subject.match(/^\[([a-z]+)\]/i);
+  return m ? m[1].toLowerCase() : 'general';
+}
+
+function buildSubjectWithDept(dept, brand) {
+  const tag = (dept && dept !== 'general') ? `[${dept}] ` : '';
+  return `${tag}${brand} — Partner chat`;
+}
+
+// Per-account department change
+async function acctChangeMsgDept() {
+  const sel = document.getElementById('acctMsgDept');
+  const saved = document.getElementById('acctMsgDeptSaved');
+  if (!sel || !_acctCache.threadId) return;
+  const dept = sel.value;
+  const brand = _acctActiveBrand || '';
+  const newSubject = buildSubjectWithDept(dept, brand);
+  const sb = window.angoraSupabase; if (!sb) return;
+  const { error } = await sb.from('angora_message_threads').update({ subject: newSubject }).eq('id', _acctCache.threadId);
+  if (error) { console.warn('dept update err', error); return; }
+  if (saved) { saved.textContent = '✓ Saved'; saved.style.opacity = '1'; setTimeout(() => { saved.style.opacity = '0'; }, 1500); }
+  // Log activity
+  acctLogActivity(brand, 'message', `Message thread department changed to ${MSG_DEPT_LABELS[dept] || dept}`);
+}
+
+// Inbox department filter
+let _inboxDeptFilter = 'all';
+function inboxFilterDept(dept) {
+  _inboxDeptFilter = dept;
+  document.querySelectorAll('.inbox-dept-btn').forEach(b => b.classList.toggle('active', b.dataset.dept === dept));
+  inboxRenderList();
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// ACTIVITY TIMELINE (uses angora_notes with tags=['activity', ...])
+// ═════════════════════════════════════════════════════════════════════════
+
+async function acctLogActivity(brand, type, description) {
+  const sb = window.angoraSupabase; if (!sb) return;
+  const accountId = await acctEnsureAccount(brand);
+  if (!accountId) return;
+  const { data: userRes } = await sb.auth.getUser();
+  const email = userRes?.user?.email || 'system';
+  await sb.from('angora_notes').insert({
+    account_id: accountId,
+    author_email: email,
+    body: description,
+    note_date: new Date().toISOString().slice(0, 10),
+    tags: ['activity', type],
+    data_source: 'auto'
+  });
+}
+
+async function acctRenderActivityTab() {
+  const container = document.getElementById('acctActivityTimeline');
+  if (!container) return;
+  container.innerHTML = '<div class="inbox-empty" style="padding:30px 0">Loading…</div>';
+  const brand = _acctActiveBrand;
+  const accountId = await acctEnsureAccount(brand);
+  if (!accountId) { container.innerHTML = '<div class="inbox-empty" style="padding:30px 0">No account found.</div>'; return; }
+  const sb = window.angoraSupabase; if (!sb) return;
+  const { data: notes, error } = await sb.from('angora_notes')
+    .select('*')
+    .eq('account_id', accountId)
+    .contains('tags', ['activity'])
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (error) { container.innerHTML = '<div class="inbox-empty" style="padding:30px 0">Error: ' + error.message + '</div>'; return; }
+  if (!notes || notes.length === 0) {
+    container.innerHTML = '<div class="inbox-empty" style="padding:30px 0">No activity recorded yet.<br><br><span style="font-size:9px;color:var(--muted)">Activity is logged automatically when inventory, settings, or messages change.</span></div>';
+    return;
+  }
+  container.innerHTML = notes.map(n => {
+    const type = (n.tags || []).find(t => t !== 'activity') || 'general';
+    const dotClass = MSG_DEPARTMENTS.includes(type) ? type : (['inventory','settings','message'].includes(type) ? type : 'general');
+    return `<div class="activity-entry">
+      <div class="activity-dot ${dotClass}"></div>
+      <div class="activity-body">
+        ${(n.body || '').replace(/</g,'&lt;')}
+        <div class="activity-time">${n.author_email} · ${new Date(n.created_at).toLocaleString()}</div>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 // ═════════════════════════════════════════════════════════════════════════
