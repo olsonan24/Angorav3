@@ -21594,7 +21594,49 @@ const INBOX_GLOBAL_ACCESS = [...INBOX_PRODUCT_TEAM_EMAILS, ...INBOX_ADMIN_EMAILS
 
 let _inboxState = { threads: [], activeThreadId: null, accountsById: {}, msgChannel: null, inboxChannel: null };
 
+// ═══ Sidebar notification badge ═══
+function updateInboxBadge(count) {
+  const badge = document.getElementById('sbInboxBadge');
+  if (!badge) return;
+  if (count > 0) {
+    badge.textContent = count > 9 ? '9+' : count;
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+let _inboxUnreadCount = 0;
+// Bump badge on incoming partner messages (realtime)
+function inboxBadgeBump() {
+  // Only bump if the inbox tool is NOT currently visible
+  const inboxPanel = document.getElementById('tool-inbox');
+  if (inboxPanel && inboxPanel.style.display !== 'none') return;
+  _inboxUnreadCount++;
+  updateInboxBadge(_inboxUnreadCount);
+}
+function inboxBadgeClear() { _inboxUnreadCount = 0; updateInboxBadge(0); }
+
+// Boot a lightweight realtime listener for badge notifications (even before inbox is opened)
+(function _inboxBadgeBoot() {
+  let _badgeChannel = null;
+  function trySetup() {
+    const sb = window.angoraSupabase || (typeof getSupabaseClient === 'function' ? null : null);
+    if (!sb) return setTimeout(trySetup, 1500);
+    if (_badgeChannel) return;
+    try {
+      _badgeChannel = sb.channel('inbox-badge-global').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'angora_messages' }, (payload) => {
+        const m = payload.new;
+        if (m.sender_type === 'partner') inboxBadgeBump();
+      }).subscribe();
+    } catch(e) { console.warn('inbox badge boot err', e); }
+  }
+  if (document.readyState === 'complete' || document.readyState === 'interactive') trySetup();
+  else document.addEventListener('DOMContentLoaded', trySetup);
+})();
+
 async function initInbox() {
+  // Clear badge when user opens inbox
+  inboxBadgeClear();
   const body = document.getElementById('inboxListBody');
   if (!body) return;
   body.innerHTML = '<div class="inbox-empty">Loading\u2026</div>';
@@ -21671,6 +21713,8 @@ async function initInbox() {
         if (_inboxState.activeThreadId === m.thread_id) {
           inboxAppendMessage(m);
         }
+        // Show sidebar notification badge for partner replies
+        if (m.sender_type === 'partner') inboxBadgeBump();
       }
     }).subscribe();
   } catch(e) { console.warn('inbox global subscribe err', e); }
